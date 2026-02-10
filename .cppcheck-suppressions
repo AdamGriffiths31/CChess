@@ -1,0 +1,12 @@
+# CChess Cppcheck Suppressions
+# Suppress specific warnings that are false positives or intentional
+
+# Suppress missing includes (we use CMake to manage includes)
+missingInclude
+
+# Suppress warnings in third-party code (Catch2)
+*:*catch2*
+*:*_deps*
+
+# Windows-specific suppressions
+unmatchedSuppression:*ConsoleUtils.cpp
