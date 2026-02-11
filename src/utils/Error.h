@@ -8,8 +8,7 @@ namespace cchess {
 
 class ChessError : public std::runtime_error {
 public:
-    explicit ChessError(const std::string& message)
-        : std::runtime_error(message) {}
+    explicit ChessError(const std::string& message) : std::runtime_error(message) {}
 };
 
 class FenParseError : public ChessError {
@@ -24,6 +23,6 @@ public:
         : ChessError("FEN Validation Error: " + message) {}
 };
 
-} // namespace cchess
+}  // namespace cchess
 
-#endif // CCHESS_ERROR_H
+#endif  // CCHESS_ERROR_H

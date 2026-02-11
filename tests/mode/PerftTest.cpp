@@ -1,26 +1,30 @@
 #include "core/Board.h"
+#include "core/movegen/MoveGenerator.h"
+#include "fen/FenParser.h"
 #include "mode/PerftRunner.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <iomanip>
 #include <iostream>
 
 using namespace cchess;
 
-// Standalone perft function for testing (avoids needing PerftRunner internals)
 static uint64_t perft(Board& board, int depth) {
     if (depth == 0)
         return 1;
 
-    auto moves = board.getLegalMoves();
-    if (depth == 1)
-        return moves.size();
+    Position& pos = board.position();
+    MoveList pseudo = MoveGenerator::generatePseudoLegalMoves(pos);
+    Color us = pos.sideToMove();
 
     uint64_t nodes = 0;
-    for (const auto& move : moves) {
-        UndoInfo undo = board.makeMoveUnchecked(move);
-        nodes += perft(board, depth - 1);
-        board.unmakeMove(move, undo);
+    for (const auto& move : pseudo) {
+        UndoInfo undo = pos.makeMove(move);
+        if (!MoveGenerator::isInCheck(pos, us)) {
+            nodes += (depth == 1) ? 1 : perft(board, depth - 1);
+        }
+        pos.unmakeMove(move, undo);
     }
     return nodes;
 }
@@ -54,10 +58,17 @@ static PerftResult perftDetailed(Board& board, int depth) {
         return result;
     }
 
-    auto moves = board.getLegalMoves();
+    Position& pos = board.position();
+    MoveList pseudo = MoveGenerator::generatePseudoLegalMoves(pos);
+    Color us = pos.sideToMove();
 
-    for (const auto& move : moves) {
-        UndoInfo undo = board.makeMoveUnchecked(move);
+    for (const auto& move : pseudo) {
+        UndoInfo undo = pos.makeMove(move);
+
+        if (MoveGenerator::isInCheck(pos, us)) {
+            pos.unmakeMove(move, undo);
+            continue;
+        }
 
         if (depth == 1) {
             result.nodes++;
@@ -77,7 +88,7 @@ static PerftResult perftDetailed(Board& board, int depth) {
             result += perftDetailed(board, depth - 1);
         }
 
-        board.unmakeMove(move, undo);
+        pos.unmakeMove(move, undo);
     }
     return result;
 }

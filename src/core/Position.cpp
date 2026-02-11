@@ -73,70 +73,65 @@ void Position::clear() {
 // ============================================================================
 
 UndoInfo Position::makeMove(const Move& move) {
-    // Save undo state
     UndoInfo undo;
-    undo.capturedPiece = pieceAt(move.to());
     undo.castlingRights = castlingRights_;
     undo.enPassantSquare = enPassantSquare_;
     undo.halfmoveClock = halfmoveClock_;
 
-    Piece movedPiece = pieceAt(move.from());
+    const Square from = move.from();
+    const Square to = move.to();
+    const Color us = sideToMove_;
+    const Color them = ~us;
+    const Piece movedPiece = board_[from];
+    const PieceType pt = movedPiece.type();
 
-    // Execute piece movement by move type
+    undo.capturedPiece = board_[to];
+
     if (move.isCastling()) {
-        Square kingFrom = move.from();
-        Square kingTo = move.to();
+        movePieceBB(from, to, PieceType::King, us);
 
-        // Move the king
-        setPiece(kingTo, movedPiece);
-        clearSquare(kingFrom);
-
-        // Determine and move the rook
+        Rank rank = getRank(from);
         Square rookFrom, rookTo;
-        if (getFile(kingTo) == FILE_G) {
-            Rank rank = getRank(kingFrom);
+        if (getFile(to) == FILE_G) {
             rookFrom = makeSquare(FILE_H, rank);
             rookTo = makeSquare(FILE_F, rank);
         } else {
-            Rank rank = getRank(kingFrom);
             rookFrom = makeSquare(FILE_A, rank);
             rookTo = makeSquare(FILE_D, rank);
         }
-        Piece rook = pieceAt(rookFrom);
-        setPiece(rookTo, rook);
-        clearSquare(rookFrom);
+        movePieceBB(rookFrom, rookTo, PieceType::Rook, us);
     } else if (move.isEnPassant()) {
-        // Move the pawn
-        setPiece(move.to(), movedPiece);
-        clearSquare(move.from());
+        movePieceBB(from, to, PieceType::Pawn, us);
 
-        // Remove the captured pawn
-        int direction = (sideToMove_ == Color::White) ? -1 : 1;
-        Rank captureRank = static_cast<Rank>(getRank(move.to()) + direction);
-        Square capturedPawnSq = makeSquare(getFile(move.to()), captureRank);
-        // Save the actual captured pawn in undo (it's not on move.to())
-        undo.capturedPiece = pieceAt(capturedPawnSq);
-        clearSquare(capturedPawnSq);
+        int direction = (us == Color::White) ? -1 : 1;
+        Rank captureRank = static_cast<Rank>(getRank(to) + direction);
+        Square capturedSq = makeSquare(getFile(to), captureRank);
+        undo.capturedPiece = board_[capturedSq];
+        removePieceBB(capturedSq, PieceType::Pawn, them);
     } else {
-        // Regular move or capture
-        setPiece(move.to(), movedPiece);
-        clearSquare(move.from());
+        if (move.isCapture()) {
+            removePieceBB(to, undo.capturedPiece.type(), them);
+        }
 
-        // Handle promotion
         if (move.isPromotion()) {
-            setPiece(move.to(), Piece(move.promotion(), sideToMove_));
+            removePieceBB(from, PieceType::Pawn, us);
+            putPieceBB(to, move.promotion(), us);
+        } else {
+            movePieceBB(from, to, pt, us);
         }
     }
 
+    updateOccupied();
+
     // Update halfmove clock
-    if (movedPiece.type() == PieceType::Pawn || move.isCapture()) {
+    if (pt == PieceType::Pawn || move.isCapture()) {
         halfmoveClock_ = 0;
     } else {
         ++halfmoveClock_;
     }
 
     // Update fullmove number
-    if (sideToMove_ == Color::Black) {
+    if (us == Color::Black) {
         ++fullmoveNumber_;
     }
 
@@ -144,13 +139,13 @@ UndoInfo Position::makeMove(const Move& move) {
     updateCastlingRightsForMove(move, movedPiece);
 
     // Update en passant square
-    if (movedPiece.type() == PieceType::Pawn) {
+    if (pt == PieceType::Pawn) {
         int rankDiff =
-            std::abs(static_cast<int>(getRank(move.to())) - static_cast<int>(getRank(move.from())));
+            std::abs(static_cast<int>(getRank(to)) - static_cast<int>(getRank(from)));
         if (rankDiff == 2) {
-            int dir = (sideToMove_ == Color::White) ? 1 : -1;
-            Rank epRank = static_cast<Rank>(getRank(move.from()) + dir);
-            enPassantSquare_ = makeSquare(getFile(move.from()), epRank);
+            int dir = (us == Color::White) ? 1 : -1;
+            Rank epRank = static_cast<Rank>(getRank(from) + dir);
+            enPassantSquare_ = makeSquare(getFile(from), epRank);
         } else {
             enPassantSquare_ = SQUARE_NONE;
         }
@@ -158,71 +153,58 @@ UndoInfo Position::makeMove(const Move& move) {
         enPassantSquare_ = SQUARE_NONE;
     }
 
-    // Flip side to move
     sideToMove_ = ~sideToMove_;
 
     return undo;
 }
 
 void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
-    // Flip side back
     sideToMove_ = ~sideToMove_;
 
-    Piece movedPiece = pieceAt(move.to());
+    const Square from = move.from();
+    const Square to = move.to();
+    const Color us = sideToMove_;
+    const Color them = ~us;
 
-    // For promotions, the moved piece was originally a pawn
-    if (move.isPromotion()) {
-        movedPiece = Piece(PieceType::Pawn, sideToMove_);
-    }
-
-    // Reverse piece movement by move type
     if (move.isCastling()) {
-        // Unmove the king
-        setPiece(move.from(), movedPiece);
-        clearSquare(move.to());
+        movePieceBB(to, from, PieceType::King, us);
 
-        // Unmove the rook
+        Rank rank = getRank(from);
         Square rookFrom, rookTo;
-        if (getFile(move.to()) == FILE_G) {
-            Rank rank = getRank(move.from());
+        if (getFile(to) == FILE_G) {
             rookFrom = makeSquare(FILE_H, rank);
             rookTo = makeSquare(FILE_F, rank);
         } else {
-            Rank rank = getRank(move.from());
             rookFrom = makeSquare(FILE_A, rank);
             rookTo = makeSquare(FILE_D, rank);
         }
-        Piece rook = pieceAt(rookTo);
-        setPiece(rookFrom, rook);
-        clearSquare(rookTo);
+        movePieceBB(rookTo, rookFrom, PieceType::Rook, us);
     } else if (move.isEnPassant()) {
-        // Restore the moving pawn
-        setPiece(move.from(), movedPiece);
-        clearSquare(move.to());
+        movePieceBB(to, from, PieceType::Pawn, us);
 
-        // Restore the captured pawn
-        int direction = (sideToMove_ == Color::White) ? -1 : 1;
-        Rank captureRank = static_cast<Rank>(getRank(move.to()) + direction);
-        Square capturedPawnSq = makeSquare(getFile(move.to()), captureRank);
-        setPiece(capturedPawnSq, undo.capturedPiece);
+        int direction = (us == Color::White) ? -1 : 1;
+        Rank captureRank = static_cast<Rank>(getRank(to) + direction);
+        Square capturedSq = makeSquare(getFile(to), captureRank);
+        putPieceBB(capturedSq, PieceType::Pawn, them);
     } else {
-        // Restore moving piece to source
-        setPiece(move.from(), movedPiece);
-
-        // Restore captured piece (or clear if no capture)
-        if (undo.capturedPiece.type() != PieceType::None) {
-            setPiece(move.to(), undo.capturedPiece);
+        if (move.isPromotion()) {
+            removePieceBB(to, move.promotion(), us);
+            putPieceBB(from, PieceType::Pawn, us);
         } else {
-            clearSquare(move.to());
+            movePieceBB(to, from, board_[to].type(), us);
+        }
+
+        if (undo.capturedPiece.type() != PieceType::None) {
+            putPieceBB(to, undo.capturedPiece.type(), them);
         }
     }
 
-    // Restore game state
+    updateOccupied();
+
     castlingRights_ = undo.castlingRights;
     enPassantSquare_ = undo.enPassantSquare;
     halfmoveClock_ = undo.halfmoveClock;
 
-    // Decrement fullmove if black moved
     if (sideToMove_ == Color::Black) {
         --fullmoveNumber_;
     }

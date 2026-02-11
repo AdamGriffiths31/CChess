@@ -66,6 +66,30 @@ public:
 private:
     void updateCastlingRightsForMove(const Move& move, const Piece& movedPiece);
 
+    // Direct bitboard manipulation for makeMove/unmakeMove hot path.
+    // These use XOR and assume correct preconditions (no redundant checks).
+    void movePieceBB(Square from, Square to, PieceType pt, Color c) {
+        Bitboard fromTo = squareBB(from) | squareBB(to);
+        pieceBB_[static_cast<int>(pt)] ^= fromTo;
+        colorBB_[static_cast<int>(c)] ^= fromTo;
+        board_[to] = board_[from];
+        board_[from] = Piece();
+    }
+
+    void removePieceBB(Square sq, PieceType pt, Color c) {
+        pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
+        colorBB_[static_cast<int>(c)] ^= squareBB(sq);
+        board_[sq] = Piece();
+    }
+
+    void putPieceBB(Square sq, PieceType pt, Color c) {
+        pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
+        colorBB_[static_cast<int>(c)] ^= squareBB(sq);
+        board_[sq] = Piece(pt, c);
+    }
+
+    void updateOccupied() { occupied_ = colorBB_[0] | colorBB_[1]; }
+
     std::array<Piece, 64> board_;
 
     // Bitboards (synchronized with board_ array)

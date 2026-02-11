@@ -18,6 +18,6 @@ bool isInteger(const std::string& str);
 // Parse string to integer (returns 0 if invalid)
 int toInteger(const std::string& str);
 
-} // namespace cchess
+}  // namespace cchess
 
-#endif // CCHESS_STRINGUTILS_H
+#endif  // CCHESS_STRINGUTILS_H
