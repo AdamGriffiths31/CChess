@@ -1,10 +1,17 @@
 #include "ai/Search.h"
 
 #include "ai/Eval.h"
-
-#include <algorithm>
+#include "ai/MoveOrder.h"
 
 namespace cchess {
+
+// ============================================================================
+// Search features:
+//   - Iterative deepening with time control
+//   - Negamax + alpha-beta pruning
+//   - Quiescence search (captures + promotions) to eliminate the horizon effect
+//   - MVV-LVA capture ordering (see MoveOrder.cpp)
+// ============================================================================
 
 // ============================================================================
 // Construction
@@ -34,7 +41,7 @@ Move Search::findBestMove() {
         if (moves.empty())
             break;
 
-        orderMoves(moves);
+        MoveOrder::sort(moves, board_.position());
 
         for (size_t i = 0; i < moves.size(); ++i) {
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
@@ -86,9 +93,9 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
         return eval::SCORE_DRAW;
 
     if (depth == 0)
-        return eval::evaluate(board_.position());
+        return quiescence(alpha, beta, ply);
 
-    orderMoves(moves);
+    MoveOrder::sort(moves, board_.position());
 
     int bestScore = -eval::SCORE_INFINITY;
 
@@ -113,12 +120,52 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
 }
 
 // ============================================================================
-// Helpers
+// Quiescence search -- only searches captures and promotions so that the
+// static evaluation is never called in a tactically unstable position.
+// Uses "stand pat" as a lower bound: the side to move can always choose
+// not to capture.
 // ============================================================================
 
-void Search::orderMoves(MoveList& moves) {
-    std::stable_partition(moves.begin(), moves.end(), [](const Move& m) { return m.isCapture(); });
+int Search::quiescence(int alpha, int beta, int ply) {
+    if ((nodes_ & 1023) == 0)
+        checkTime();
+    if (stopped_)
+        return 0;
+
+    int standPat = eval::evaluate(board_.position());
+
+    // Stand-pat cutoff: side to move can choose not to capture
+    if (standPat >= beta)
+        return beta;
+    if (standPat > alpha)
+        alpha = standPat;
+
+    MoveList allMoves = board_.getLegalMoves();
+
+    Move captures[256];
+    size_t numCaptures = MoveOrder::extractCaptures(allMoves, board_.position(), captures, 256);
+
+    for (size_t i = 0; i < numCaptures; ++i) {
+        UndoInfo undo = board_.makeMoveUnchecked(captures[i]);
+        ++nodes_;
+        int score = -quiescence(-beta, -alpha, ply + 1);
+        board_.unmakeMove(captures[i], undo);
+
+        if (stopped_)
+            return 0;
+
+        if (score >= beta)
+            return beta;
+        if (score > alpha)
+            alpha = score;
+    }
+
+    return alpha;
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 void Search::checkTime() {
     auto elapsed = std::chrono::steady_clock::now() - startTime_;

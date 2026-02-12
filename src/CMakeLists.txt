@@ -20,6 +20,7 @@ add_library(cchess_core STATIC
 
     # AI
     ai/Eval.cpp
+    ai/MoveOrder.cpp
     ai/Search.cpp
 
     # Mode

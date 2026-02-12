@@ -19,8 +19,8 @@ public:
 
 private:
     int negamax(int depth, int alpha, int beta, int ply);
+    int quiescence(int alpha, int beta, int ply);
     void checkTime();
-    void orderMoves(MoveList& moves);
 
     Board board_;
     SearchConfig config_;

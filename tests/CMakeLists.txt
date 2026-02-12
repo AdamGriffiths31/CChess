@@ -25,6 +25,7 @@ add_executable(cchess_tests
     fen/FenParserTest.cpp
     fen/FenValidatorTest.cpp
     mode/PerftTest.cpp
+    ai/MoveOrderTest.cpp
 )
 
 target_link_libraries(cchess_tests PRIVATE
