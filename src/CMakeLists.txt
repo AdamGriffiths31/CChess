@@ -7,6 +7,7 @@ add_library(cchess_core STATIC
     core/Bitboard.cpp
     core/Board.cpp
     core/Move.cpp
+    core/Notation.cpp
     core/movegen/MoveGenerator.cpp
     core/movegen/AttackTables.cpp
 
@@ -17,9 +18,14 @@ add_library(cchess_core STATIC
     # Display
     display/BoardRenderer.cpp
 
+    # AI
+    ai/Eval.cpp
+    ai/Search.cpp
+
     # Mode
     mode/PlayerVsPlayer.cpp
     mode/PerftRunner.cpp
+    mode/StsRunner.cpp
 
     # Utils
     utils/StringUtils.cpp

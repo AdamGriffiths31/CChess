@@ -46,3 +46,4 @@ Testing/
 Thumbs.db
 CLAUDE.md
 .claude/settings.local.json
+sts/*
