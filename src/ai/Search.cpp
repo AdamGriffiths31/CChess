@@ -54,7 +54,16 @@ Move Search::findBestMove() {
         for (size_t i = 0; i < moves.size(); ++i) {
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
             ++nodes_;
-            int score = -negamax(depth - 1, -beta, -alpha, 1);
+
+            int score;
+            if (i == 0) {
+                score = -negamax(depth - 1, -beta, -alpha, 1);
+            } else {
+                score = -negamax(depth - 1, -alpha - 1, -alpha, 1);
+                if (score > alpha && score < beta)
+                    score = -negamax(depth - 1, -beta, -alpha, 1);
+            }
+
             board_.unmakeMove(moves[i], undo);
 
             if (stopped_)
@@ -103,25 +112,28 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
     if (tt_.probe(posHash, ttEntry)) {
         ttMove = ttEntry.bestMove;
         if (ttEntry.depth >= depth) {
-            int ttScore = scoreFromTT(ttEntry.score, ply);
-            switch (ttEntry.bound) {
-                case TTBound::EXACT:
-                    ++tt_.stats().cutoffs;
-                    return ttScore;
-                case TTBound::LOWER:
-                    if (ttScore >= beta) {
+            bool isPvNode = (beta - alpha > 1);
+            if (!isPvNode) {
+                int ttScore = scoreFromTT(ttEntry.score, ply);
+                switch (ttEntry.bound) {
+                    case TTBound::EXACT:
                         ++tt_.stats().cutoffs;
                         return ttScore;
-                    }
-                    break;
-                case TTBound::UPPER:
-                    if (ttScore <= alpha) {
-                        ++tt_.stats().cutoffs;
-                        return ttScore;
-                    }
-                    break;
-                default:
-                    break;
+                    case TTBound::LOWER:
+                        if (ttScore >= beta) {
+                            ++tt_.stats().cutoffs;
+                            return ttScore;
+                        }
+                        break;
+                    case TTBound::UPPER:
+                        if (ttScore <= alpha) {
+                            ++tt_.stats().cutoffs;
+                            return ttScore;
+                        }
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
@@ -150,7 +162,16 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
     for (size_t i = 0; i < moves.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
         ++nodes_;
-        int score = -negamax(depth - 1, -beta, -alpha, ply + 1);
+
+        int score;
+        if (i == 0) {
+            score = -negamax(depth - 1, -beta, -alpha, ply + 1);
+        } else {
+            score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1);
+            if (score > alpha && score < beta)
+                score = -negamax(depth - 1, -beta, -alpha, ply + 1);
+        }
+
         board_.unmakeMove(moves[i], undo);
 
         if (stopped_)

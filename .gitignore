@@ -45,5 +45,5 @@ Testing/
 .DS_Store
 Thumbs.db
 CLAUDE.md
-.claude/settings.local.json
+.claude/*
 sts/*
