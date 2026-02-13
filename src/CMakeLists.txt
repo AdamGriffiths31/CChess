@@ -8,6 +8,7 @@ add_library(cchess_core STATIC
     core/Board.cpp
     core/Move.cpp
     core/Notation.cpp
+    core/Zobrist.cpp
     core/movegen/MoveGenerator.cpp
     core/movegen/AttackTables.cpp
 
@@ -22,6 +23,7 @@ add_library(cchess_core STATIC
     ai/Eval.cpp
     ai/MoveOrder.cpp
     ai/Search.cpp
+    ai/TranspositionTable.cpp
 
     # Mode
     mode/PlayerVsPlayer.cpp

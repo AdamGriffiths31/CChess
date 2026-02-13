@@ -1,6 +1,7 @@
 #include "FenParser.h"
 
 #include "../core/Square.h"
+#include "../core/Zobrist.h"
 #include "../utils/Error.h"
 #include "../utils/StringUtils.h"
 
@@ -31,6 +32,7 @@ Position FenParser::parse(const std::string& fen) {
         throw FenParseError(std::string("Unexpected error: ") + e.what());
     }
 
+    position.computeHash();
     return position;
 }
 

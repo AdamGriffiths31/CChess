@@ -26,11 +26,13 @@ add_executable(cchess_tests
     fen/FenValidatorTest.cpp
     mode/PerftTest.cpp
     ai/MoveOrderTest.cpp
+    core/ZobristTest.cpp
+    ai/TranspositionTableTest.cpp
 )
 
 target_link_libraries(cchess_tests PRIVATE
     cchess_core
-    Catch2::Catch2WithMain
+    Catch2::Catch2
 )
 
 # Add tests to CTest

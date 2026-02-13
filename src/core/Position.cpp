@@ -1,6 +1,7 @@
 #include "Position.h"
 
 #include "Square.h"
+#include "Zobrist.h"
 
 #include <algorithm>
 #include <cassert>
@@ -66,6 +67,23 @@ void Position::clear() {
     pieceBB_.fill(BB_EMPTY);
     colorBB_.fill(BB_EMPTY);
     occupied_ = BB_EMPTY;
+    hash_ = 0;
+}
+
+void Position::computeHash() {
+    hash_ = 0;
+    for (Square sq = 0; sq < 64; ++sq) {
+        const Piece& p = board_[sq];
+        if (!p.isEmpty()) {
+            hash_ ^=
+                zobrist::pieceKeys[static_cast<int>(p.color())][static_cast<int>(p.type())][sq];
+        }
+    }
+    if (sideToMove_ == Color::Black)
+        hash_ ^= zobrist::sideKey;
+    hash_ ^= zobrist::castlingKeys[castlingRights_];
+    if (enPassantSquare_ != SQUARE_NONE)
+        hash_ ^= zobrist::enPassantKeys[getFile(enPassantSquare_)];
 }
 
 // ============================================================================
@@ -77,6 +95,7 @@ UndoInfo Position::makeMove(const Move& move) {
     undo.castlingRights = castlingRights_;
     undo.enPassantSquare = enPassantSquare_;
     undo.halfmoveClock = halfmoveClock_;
+    undo.hash = hash_;
 
     const Square from = move.from();
     const Square to = move.to();
@@ -84,11 +103,20 @@ UndoInfo Position::makeMove(const Move& move) {
     const Color them = ~us;
     const Piece movedPiece = board_[from];
     const PieceType pt = movedPiece.type();
+    const int ci = static_cast<int>(us);
+    const int ci_them = static_cast<int>(them);
 
     undo.capturedPiece = board_[to];
 
+    // XOR out old castling and en passant keys
+    hash_ ^= zobrist::castlingKeys[castlingRights_];
+    if (enPassantSquare_ != SQUARE_NONE)
+        hash_ ^= zobrist::enPassantKeys[getFile(enPassantSquare_)];
+
     if (move.isCastling()) {
         movePieceBB(from, to, PieceType::King, us);
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::King)][from];
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::King)][to];
 
         Rank rank = getRank(from);
         Square rookFrom, rookTo;
@@ -100,24 +128,34 @@ UndoInfo Position::makeMove(const Move& move) {
             rookTo = makeSquare(FILE_D, rank);
         }
         movePieceBB(rookFrom, rookTo, PieceType::Rook, us);
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::Rook)][rookFrom];
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::Rook)][rookTo];
     } else if (move.isEnPassant()) {
         movePieceBB(from, to, PieceType::Pawn, us);
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::Pawn)][from];
+        hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::Pawn)][to];
 
         int direction = (us == Color::White) ? -1 : 1;
         Rank captureRank = static_cast<Rank>(getRank(to) + direction);
         Square capturedSq = makeSquare(getFile(to), captureRank);
         undo.capturedPiece = board_[capturedSq];
         removePieceBB(capturedSq, PieceType::Pawn, them);
+        hash_ ^= zobrist::pieceKeys[ci_them][static_cast<int>(PieceType::Pawn)][capturedSq];
     } else {
         if (move.isCapture()) {
             removePieceBB(to, undo.capturedPiece.type(), them);
+            hash_ ^= zobrist::pieceKeys[ci_them][static_cast<int>(undo.capturedPiece.type())][to];
         }
 
         if (move.isPromotion()) {
             removePieceBB(from, PieceType::Pawn, us);
             putPieceBB(to, move.promotion(), us);
+            hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::Pawn)][from];
+            hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(move.promotion())][to];
         } else {
             movePieceBB(from, to, pt, us);
+            hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(pt)][from];
+            hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(pt)][to];
         }
     }
 
@@ -140,8 +178,7 @@ UndoInfo Position::makeMove(const Move& move) {
 
     // Update en passant square
     if (pt == PieceType::Pawn) {
-        int rankDiff =
-            std::abs(static_cast<int>(getRank(to)) - static_cast<int>(getRank(from)));
+        int rankDiff = std::abs(static_cast<int>(getRank(to)) - static_cast<int>(getRank(from)));
         if (rankDiff == 2) {
             int dir = (us == Color::White) ? 1 : -1;
             Rank epRank = static_cast<Rank>(getRank(from) + dir);
@@ -153,6 +190,12 @@ UndoInfo Position::makeMove(const Move& move) {
         enPassantSquare_ = SQUARE_NONE;
     }
 
+    // XOR in new castling and en passant keys
+    hash_ ^= zobrist::castlingKeys[castlingRights_];
+    if (enPassantSquare_ != SQUARE_NONE)
+        hash_ ^= zobrist::enPassantKeys[getFile(enPassantSquare_)];
+
+    hash_ ^= zobrist::sideKey;
     sideToMove_ = ~sideToMove_;
 
     return undo;
@@ -204,6 +247,7 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
     castlingRights_ = undo.castlingRights;
     enPassantSquare_ = undo.enPassantSquare;
     halfmoveClock_ = undo.halfmoveClock;
+    hash_ = undo.hash;
 
     if (sideToMove_ == Color::Black) {
         --fullmoveNumber_;

@@ -2,6 +2,7 @@
 
 #include "../ai/Search.h"
 #include "../ai/SearchConfig.h"
+#include "../ai/TranspositionTable.h"
 #include "../core/Board.h"
 #include "../core/Notation.h"
 #include "../core/Square.h"
@@ -43,20 +44,24 @@ std::map<std::string, int> parseC0(const std::string& c0) {
     while (std::getline(stream, token, ',')) {
         // Trim whitespace
         auto start = token.find_first_not_of(' ');
-        if (start == std::string::npos) continue;
+        if (start == std::string::npos)
+            continue;
         token = token.substr(start);
 
         // Find '=' separator (last one, since SAN may contain '=' for promotion)
         auto eq = token.rfind('=');
-        if (eq == std::string::npos || eq == 0) continue;
+        if (eq == std::string::npos || eq == 0)
+            continue;
 
         std::string moveSan = token.substr(0, eq);
         std::string scoreStr = token.substr(eq + 1);
 
         // Trim both parts
-        while (!moveSan.empty() && moveSan.back() == ' ') moveSan.pop_back();
+        while (!moveSan.empty() && moveSan.back() == ' ')
+            moveSan.pop_back();
         auto sStart = scoreStr.find_first_not_of(' ');
-        if (sStart != std::string::npos) scoreStr = scoreStr.substr(sStart);
+        if (sStart != std::string::npos)
+            scoreStr = scoreStr.substr(sStart);
 
         int score = 0;
         try {
@@ -74,25 +79,28 @@ std::map<std::string, int> parseC0(const std::string& c0) {
 
 // Parse a single EPD line, returning FEN and c0 scores
 // Returns false if the line is malformed or empty
-bool parseEpd(const std::string& line, std::string& fen,
-              std::map<std::string, int>& c0Scores) {
-    if (line.empty()) return false;
+bool parseEpd(const std::string& line, std::string& fen, std::map<std::string, int>& c0Scores) {
+    if (line.empty())
+        return false;
 
     // First 4 space-separated fields are the FEN parts
     std::istringstream stream(line);
     std::string board, side, castling, ep;
-    if (!(stream >> board >> side >> castling >> ep)) return false;
+    if (!(stream >> board >> side >> castling >> ep))
+        return false;
 
     // Build full FEN with default halfmove/fullmove
     fen = board + " " + side + " " + castling + " " + ep + " 0 1";
 
     // Find c0 field: c0 "...";
     auto c0Pos = line.find("c0 \"");
-    if (c0Pos == std::string::npos) return false;
+    if (c0Pos == std::string::npos)
+        return false;
 
     auto c0Start = c0Pos + 4;  // past c0 "
     auto c0End = line.find('"', c0Start);
-    if (c0End == std::string::npos) return false;
+    if (c0End == std::string::npos)
+        return false;
 
     std::string c0Content = line.substr(c0Start, c0End - c0Start);
     c0Scores = parseC0(c0Content);
@@ -165,8 +173,8 @@ void StsRunner::run() {
     std::sort(stsFiles.begin(), stsFiles.end());
 
     std::cout << "\nFound " << stsFiles.size() << " STS file(s). "
-              << "Running " << positionsPerFile << " positions each at "
-              << searchTimeMs << "ms/position.\n\n";
+              << "Running " << positionsPerFile << " positions each at " << searchTimeMs
+              << "ms/position.\n\n";
 
     // Results storage
     struct FileResult {
@@ -198,10 +206,12 @@ void StsRunner::run() {
             std::string fen;
             std::map<std::string, int> c0Scores;
 
-            if (!parseEpd(line, fen, c0Scores)) continue;
+            if (!parseEpd(line, fen, c0Scores))
+                continue;
 
             Board board(fen);
-            Search search(board, config);
+            TranspositionTable tt;
+            Search search(board, config, tt);
             Move bestMove = search.findBestMove();
 
             if (bestMove.isNull()) {
@@ -234,8 +244,7 @@ void StsRunner::run() {
                 }
             }
 
-            std::cout << "  #" << posCount << ": " << san
-                      << " (" << score << "/10)"
+            std::cout << "  #" << posCount << ": " << san << " (" << score << "/10)"
                       << "  expected: " << bestMove_san << "\n";
         }
 
@@ -269,14 +278,13 @@ void StsRunner::run() {
             out << "-------|---|\n";
         }
         double totalPct = totalMax > 0 ? 100.0 * totalScore / totalMax : 0.0;
-        out << "| " << generateTimestamp()
-            << " | " << searchTimeMs
-            << " | " << positionsPerFile << " |";
+        out << "| " << generateTimestamp() << " | " << searchTimeMs << " | " << positionsPerFile
+            << " |";
         for (const auto& r : results) {
             out << " " << r.score << "/" << r.maxScore << " |";
         }
-        out << " " << totalScore << "/" << totalMax
-            << " | " << std::fixed << std::setprecision(1) << totalPct << "% |\n";
+        out << " " << totalScore << "/" << totalMax << " | " << std::fixed << std::setprecision(1)
+            << totalPct << "% |\n";
         std::cout << "Results appended to: " << outPath << "\n";
     } else {
         std::cout << "Warning: could not write results file.\n";

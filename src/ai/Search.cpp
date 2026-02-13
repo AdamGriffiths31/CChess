@@ -3,6 +3,8 @@
 #include "ai/Eval.h"
 #include "ai/MoveOrder.h"
 
+#include <cassert>
+
 namespace cchess {
 
 // ============================================================================
@@ -10,6 +12,7 @@ namespace cchess {
 //   - Iterative deepening with time control
 //   - Negamax + alpha-beta pruning
 //   - Quiescence search (captures + promotions) to eliminate the horizon effect
+//   - Transposition table with best-move ordering
 //   - MVV-LVA capture ordering (see MoveOrder.cpp)
 // ============================================================================
 
@@ -17,8 +20,8 @@ namespace cchess {
 // Construction
 // ============================================================================
 
-Search::Search(const Board& board, const SearchConfig& config)
-    : board_(board), config_(config), stopped_(false), nodes_(0) {}
+Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt)
+    : board_(board), config_(config), tt_(tt), stopped_(false), nodes_(0) {}
 
 // ============================================================================
 // Search
@@ -28,7 +31,6 @@ Move Search::findBestMove() {
     startTime_ = std::chrono::steady_clock::now();
     stopped_ = false;
     nodes_ = 0;
-
     Move bestMove;
 
     for (int depth = 1; depth <= config_.maxDepth; ++depth) {
@@ -41,7 +43,13 @@ Move Search::findBestMove() {
         if (moves.empty())
             break;
 
-        MoveOrder::sort(moves, board_.position());
+        // Probe TT at root for move ordering hint
+        Move ttMove;
+        TTEntry ttEntry;
+        if (tt_.probe(board_.position().hash(), ttEntry))
+            ttMove = ttEntry.bestMove;
+
+        MoveOrder::sort(moves, board_.position(), ttMove);
 
         for (size_t i = 0; i < moves.size(); ++i) {
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
@@ -66,6 +74,10 @@ Move Search::findBestMove() {
 
         bestMove = depthBest;
 
+        // Store root result in TT
+        tt_.store(board_.position().hash(), scoreToTT(bestScore, 0), depth, TTBound::EXACT,
+                  bestMove);
+
         // Stop early on forced mate
         if (bestScore >= eval::SCORE_MATE - config_.maxDepth)
             break;
@@ -75,10 +87,44 @@ Move Search::findBestMove() {
 }
 
 int Search::negamax(int depth, int alpha, int beta, int ply) {
+    assert(alpha < beta);
+    assert(depth >= 0);
+    assert(ply >= 0);
+
     if ((nodes_ & 1023) == 0)
         checkTime();
     if (stopped_)
         return 0;
+
+    // TT probe
+    Move ttMove;
+    uint64_t posHash = board_.position().hash();
+    TTEntry ttEntry;
+    if (tt_.probe(posHash, ttEntry)) {
+        ttMove = ttEntry.bestMove;
+        if (ttEntry.depth >= depth) {
+            int ttScore = scoreFromTT(ttEntry.score, ply);
+            switch (ttEntry.bound) {
+                case TTBound::EXACT:
+                    ++tt_.stats().cutoffs;
+                    return ttScore;
+                case TTBound::LOWER:
+                    if (ttScore >= beta) {
+                        ++tt_.stats().cutoffs;
+                        return ttScore;
+                    }
+                    break;
+                case TTBound::UPPER:
+                    if (ttScore <= alpha) {
+                        ++tt_.stats().cutoffs;
+                        return ttScore;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
 
     MoveList moves = board_.getLegalMoves();
 
@@ -95,9 +141,11 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
     if (depth == 0)
         return quiescence(alpha, beta, ply);
 
-    MoveOrder::sort(moves, board_.position());
+    MoveOrder::sort(moves, board_.position(), ttMove);
 
     int bestScore = -eval::SCORE_INFINITY;
+    Move bestMoveInNode;
+    int origAlpha = alpha;
 
     for (size_t i = 0; i < moves.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
@@ -108,12 +156,27 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
         if (stopped_)
             return 0;
 
-        if (score > bestScore)
+        if (score > bestScore) {
             bestScore = score;
+            bestMoveInNode = moves[i];
+        }
         if (score > alpha)
             alpha = score;
         if (alpha >= beta)
             break;
+    }
+
+    // Determine bound type and store
+    if (!stopped_) {
+        TTBound bound;
+        if (alpha >= beta)
+            bound = TTBound::LOWER;
+        else if (bestScore > origAlpha)
+            bound = TTBound::EXACT;
+        else
+            bound = TTBound::UPPER;
+
+        tt_.store(posHash, scoreToTT(bestScore, ply), depth, bound, bestMoveInNode);
     }
 
     return bestScore;
@@ -127,18 +190,45 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
 // ============================================================================
 
 int Search::quiescence(int alpha, int beta, int ply) {
+    assert(alpha < beta);
+    assert(ply >= 0);
+
     if ((nodes_ & 1023) == 0)
         checkTime();
     if (stopped_)
         return 0;
+
+    // TT probe
+    uint64_t posHash = board_.position().hash();
+    TTEntry ttEntry;
+    if (tt_.probe(posHash, ttEntry)) {
+        int ttScore = scoreFromTT(ttEntry.score, ply);
+        if (ttEntry.bound == TTBound::EXACT) {
+            ++tt_.stats().cutoffs;
+            return ttScore;
+        }
+        if (ttEntry.bound == TTBound::LOWER && ttScore >= beta) {
+            ++tt_.stats().cutoffs;
+            return ttScore;
+        }
+        if (ttEntry.bound == TTBound::UPPER && ttScore <= alpha) {
+            ++tt_.stats().cutoffs;
+            return ttScore;
+        }
+    }
 
     int standPat = eval::evaluate(board_.position());
 
     // Stand-pat cutoff: side to move can choose not to capture
     if (standPat >= beta)
         return beta;
+
+    int origAlpha = alpha;
+    int bestScore = standPat;
+
     if (standPat > alpha)
         alpha = standPat;
+    Move bestMoveInNode;
 
     MoveList allMoves = board_.getLegalMoves();
 
@@ -154,13 +244,30 @@ int Search::quiescence(int alpha, int beta, int ply) {
         if (stopped_)
             return 0;
 
-        if (score >= beta)
-            return beta;
+        if (score > bestScore) {
+            bestScore = score;
+            bestMoveInNode = captures[i];
+        }
         if (score > alpha)
             alpha = score;
+        if (alpha >= beta)
+            break;
     }
 
-    return alpha;
+    // Store in TT with depth 0 (qsearch marker)
+    if (!stopped_) {
+        TTBound bound;
+        if (bestScore >= beta)
+            bound = TTBound::LOWER;
+        else if (bestScore > origAlpha)
+            bound = TTBound::EXACT;
+        else
+            bound = TTBound::UPPER;
+
+        tt_.store(posHash, scoreToTT(bestScore, ply), 0, bound, bestMoveInNode);
+    }
+
+    return bestScore;
 }
 
 // ============================================================================

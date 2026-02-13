@@ -1,12 +1,14 @@
 #include "core/Board.h"
-#include "display/BoardRenderer.h"
-#include "mode/PlayerVsPlayer.h"
-#include "mode/PerftRunner.h"
-#include "mode/StsRunner.h"
 #include "core/Square.h"
+#include "core/Zobrist.h"
+#include "display/BoardRenderer.h"
+#include "mode/PerftRunner.h"
+#include "mode/PlayerVsPlayer.h"
+#include "mode/StsRunner.h"
 #include "utils/Error.h"
-#include <iostream>
+
 #include <exception>
+#include <iostream>
 #include <limits>
 
 void showMenu() {
@@ -34,6 +36,8 @@ int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
 
+    cchess::zobrist::init();
+
     try {
         while (true) {
             showMenu();
@@ -56,8 +60,7 @@ int main(int argc, char* argv[]) {
                     return 0;
             }
         }
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }

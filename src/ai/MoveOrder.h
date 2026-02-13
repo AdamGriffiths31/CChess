@@ -21,6 +21,9 @@ public:
     // Sort a full move list (captures/promotions first, then quiets)
     static void sort(MoveList& moves, const Position& pos);
 
+    // Sort with TT move prioritized first
+    static void sort(MoveList& moves, const Position& pos, const Move& ttMove);
+
     // Extract and sort only captures + promotions from a move list.
     // Returns the count written into `out`.
     static size_t extractCaptures(const MoveList& moves, const Position& pos, Move* out,

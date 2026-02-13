@@ -2,6 +2,7 @@
 #define CCHESS_SEARCH_H
 
 #include "ai/SearchConfig.h"
+#include "ai/TranspositionTable.h"
 #include "core/Board.h"
 #include "core/Move.h"
 #include "core/MoveList.h"
@@ -13,7 +14,7 @@ namespace cchess {
 
 class Search {
 public:
-    Search(const Board& board, const SearchConfig& config);
+    Search(const Board& board, const SearchConfig& config, TranspositionTable& tt);
 
     Move findBestMove();
 
@@ -24,6 +25,7 @@ private:
 
     Board board_;
     SearchConfig config_;
+    TranspositionTable& tt_;
 
     std::chrono::steady_clock::time_point startTime_;
     bool stopped_;

@@ -7,6 +7,7 @@
 #include "Types.h"
 
 #include <array>
+#include <cstdint>
 
 namespace cchess {
 
@@ -15,6 +16,7 @@ struct UndoInfo {
     CastlingRights castlingRights;
     Square enPassantSquare;
     int halfmoveClock;
+    uint64_t hash;
 };
 
 class Position {
@@ -26,6 +28,10 @@ public:
     const Piece& pieceAt(Square sq) const;
     void setPiece(Square sq, const Piece& piece);
     void clearSquare(Square sq);
+
+    // Hash
+    uint64_t hash() const { return hash_; }
+    void computeHash();
 
     // Game state getters
     Color sideToMove() const { return sideToMove_; }
@@ -102,6 +108,7 @@ private:
     Square enPassantSquare_;
     int halfmoveClock_;
     int fullmoveNumber_;
+    uint64_t hash_ = 0;
 };
 
 }  // namespace cchess
