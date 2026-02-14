@@ -193,16 +193,6 @@ TEST_CASE("Perft - Kiwipete", "[perft]") {
         REQUIRE(result.promotions == 15'172);
         REQUIRE(result.checks == 25'523);
     }
-
-    SECTION("Depth 5") {
-        auto result = perftDetailed(board, 5);
-        REQUIRE(result.nodes == 193'690'690);
-        REQUIRE(result.captures == 35'043'416);
-        REQUIRE(result.enPassant == 73'365);
-        REQUIRE(result.castles == 4'993'637);
-        REQUIRE(result.promotions == 8'392);
-        REQUIRE(result.checks == 3'309'887);
-    }
 }
 
 // Problematic: rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8

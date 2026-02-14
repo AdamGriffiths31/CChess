@@ -1,6 +1,7 @@
 #include "ai/Eval.h"
 
 #include "core/Bitboard.h"
+#include "core/movegen/AttackTables.h"
 
 namespace cchess {
 namespace eval {
@@ -68,7 +69,7 @@ constexpr int QUEEN_PST[64] = {
     -10,  0,  0,  0,  0,  0,  0,-10,
     -10,  0,  5,  5,  5,  5,  0,-10,
      -5,  0,  5,  5,  5,  5,  0, -5,
-      0,  0,  5,  5,  5,  5,  0, -5,
+     -5,  0,  5,  5,  5,  5,  0, -5,
     -10,  5,  5,  5,  5,  5,  0,-10,
     -10,  0,  5,  0,  0,  0,  0,-10,
     -20,-10,-10, -5, -5,-10,-10,-20
@@ -88,9 +89,38 @@ constexpr int KING_PST[64] = {
 
 constexpr const int* PST[] = {PAWN_PST, KNIGHT_PST, BISHOP_PST, ROOK_PST, QUEEN_PST, KING_PST};
 
-int evaluate(const Position& pos) {
-    int score = 0;
+// Adjacent file masks for pawn structure evaluation
+constexpr Bitboard ADJ_FILES[8] = {
+    FILE_B_BB,
+    FILE_A_BB | FILE_C_BB,
+    FILE_B_BB | FILE_D_BB,
+    FILE_C_BB | FILE_E_BB,
+    FILE_D_BB | FILE_F_BB,
+    FILE_E_BB | FILE_G_BB,
+    FILE_F_BB | FILE_H_BB,
+    FILE_G_BB,
+};
 
+// Bonus / penalty values
+constexpr int BISHOP_PAIR_BONUS = 30;
+constexpr int DOUBLED_PAWN_PENALTY = -10;
+constexpr int ISOLATED_PAWN_PENALTY = -15;
+constexpr int PASSED_PAWN_BONUS[8] = {0, 5, 10, 20, 35, 60, 100, 0};
+constexpr int ROOK_OPEN_FILE_BONUS = 15;
+constexpr int ROOK_SEMI_OPEN_FILE_BONUS = 8;
+
+// Mobility: centipawns per move above/below baseline (CPW-style linear)
+constexpr int KNIGHT_MOB_WEIGHT = 4;
+constexpr int KNIGHT_MOB_BASELINE = 4;
+constexpr int BISHOP_MOB_WEIGHT = 3;
+constexpr int BISHOP_MOB_BASELINE = 7;
+constexpr int ROOK_MOB_WEIGHT = 2;
+constexpr int ROOK_MOB_BASELINE = 7;
+constexpr int QUEEN_MOB_WEIGHT = 1;
+constexpr int QUEEN_MOB_BASELINE = 14;
+
+int materialAndPST(const Position& pos) {
+    int score = 0;
     for (int pt = 0; pt < 6; ++pt) {
         PieceType pieceType = static_cast<PieceType>(pt);
 
@@ -106,8 +136,159 @@ int evaluate(const Position& pos) {
             score -= MATERIAL_VALUE[pt] + PST[pt][sq ^ 56];
         }
     }
+    return score;
+}
 
-    // Return relative to side to move
+int bishopPair(const Position& pos) {
+    int score = 0;
+    score += BISHOP_PAIR_BONUS * (popCount(pos.pieces(PieceType::Bishop, Color::White)) >= 2);
+    score -= BISHOP_PAIR_BONUS * (popCount(pos.pieces(PieceType::Bishop, Color::Black)) >= 2);
+    return score;
+}
+
+int pawnStructure(Bitboard wp, Bitboard bp) {
+    int score = 0;
+    for (int f = 0; f < 8; ++f) {
+        Bitboard fileMask = FILE_BB[f];
+        int wCount = popCount(wp & fileMask);
+        int bCount = popCount(bp & fileMask);
+
+        if (wCount > 1)
+            score += DOUBLED_PAWN_PENALTY * (wCount - 1);
+        if (bCount > 1)
+            score -= DOUBLED_PAWN_PENALTY * (bCount - 1);
+
+        if (wCount && !(wp & ADJ_FILES[f]))
+            score += ISOLATED_PAWN_PENALTY * wCount;
+        if (bCount && !(bp & ADJ_FILES[f]))
+            score -= ISOLATED_PAWN_PENALTY * bCount;
+    }
+    return score;
+}
+
+int passedPawns(Bitboard wp, Bitboard bp) {
+    int score = 0;
+
+    Bitboard wPawns = wp;
+    while (wPawns) {
+        Square sq = popLsb(wPawns);
+        File f = getFile(sq);
+        Rank r = getRank(sq);
+        Bitboard mask = FILE_BB[f] | ADJ_FILES[f];
+        for (int ri = 0; ri <= r; ++ri)
+            mask &= ~RANK_BB[ri];
+        if (!(bp & mask))
+            score += PASSED_PAWN_BONUS[r];
+    }
+
+    Bitboard bPawns = bp;
+    while (bPawns) {
+        Square sq = popLsb(bPawns);
+        File f = getFile(sq);
+        Rank r = getRank(sq);
+        Bitboard mask = FILE_BB[f] | ADJ_FILES[f];
+        for (int ri = r; ri < 8; ++ri)
+            mask &= ~RANK_BB[ri];
+        if (!(wp & mask))
+            score -= PASSED_PAWN_BONUS[7 - r];
+    }
+
+    return score;
+}
+
+int rookOpenFiles(const Position& pos, Bitboard wp, Bitboard bp) {
+    int score = 0;
+
+    Bitboard wRooks = pos.pieces(PieceType::Rook, Color::White);
+    while (wRooks) {
+        Bitboard fileMask = FILE_BB[getFile(popLsb(wRooks))];
+        if (!(wp & fileMask))
+            score += (bp & fileMask) ? ROOK_SEMI_OPEN_FILE_BONUS : ROOK_OPEN_FILE_BONUS;
+    }
+
+    Bitboard bRooks = pos.pieces(PieceType::Rook, Color::Black);
+    while (bRooks) {
+        Bitboard fileMask = FILE_BB[getFile(popLsb(bRooks))];
+        if (!(bp & fileMask))
+            score -= (wp & fileMask) ? ROOK_SEMI_OPEN_FILE_BONUS : ROOK_OPEN_FILE_BONUS;
+    }
+
+    return score;
+}
+
+int mobility(const Position& pos) {
+    int score = 0;
+    Bitboard occupied = pos.occupied();
+
+    // Mobility area: exclude friendly pieces and squares attacked by enemy pawns
+    Bitboard wPawnAtk = shiftNorthEast(pos.pieces(PieceType::Pawn, Color::White)) |
+                        shiftNorthWest(pos.pieces(PieceType::Pawn, Color::White));
+    Bitboard bPawnAtk = shiftSouthEast(pos.pieces(PieceType::Pawn, Color::Black)) |
+                        shiftSouthWest(pos.pieces(PieceType::Pawn, Color::Black));
+
+    Bitboard wArea = ~(pos.pieces(Color::White) | bPawnAtk);
+    Bitboard bArea = ~(pos.pieces(Color::Black) | wPawnAtk);
+
+    // Knights
+    Bitboard wKnights = pos.pieces(PieceType::Knight, Color::White);
+    while (wKnights) {
+        int mob = popCount(KNIGHT_ATTACKS[popLsb(wKnights)] & wArea);
+        score += KNIGHT_MOB_WEIGHT * (mob - KNIGHT_MOB_BASELINE);
+    }
+    Bitboard bKnights = pos.pieces(PieceType::Knight, Color::Black);
+    while (bKnights) {
+        int mob = popCount(KNIGHT_ATTACKS[popLsb(bKnights)] & bArea);
+        score -= KNIGHT_MOB_WEIGHT * (mob - KNIGHT_MOB_BASELINE);
+    }
+
+    // Bishops
+    Bitboard wBishops = pos.pieces(PieceType::Bishop, Color::White);
+    while (wBishops) {
+        int mob = popCount(bishopAttacks(popLsb(wBishops), occupied) & wArea);
+        score += BISHOP_MOB_WEIGHT * (mob - BISHOP_MOB_BASELINE);
+    }
+    Bitboard bBishops = pos.pieces(PieceType::Bishop, Color::Black);
+    while (bBishops) {
+        int mob = popCount(bishopAttacks(popLsb(bBishops), occupied) & bArea);
+        score -= BISHOP_MOB_WEIGHT * (mob - BISHOP_MOB_BASELINE);
+    }
+
+    // Rooks
+    Bitboard wRooks = pos.pieces(PieceType::Rook, Color::White);
+    while (wRooks) {
+        int mob = popCount(rookAttacks(popLsb(wRooks), occupied) & wArea);
+        score += ROOK_MOB_WEIGHT * (mob - ROOK_MOB_BASELINE);
+    }
+    Bitboard bRooks = pos.pieces(PieceType::Rook, Color::Black);
+    while (bRooks) {
+        int mob = popCount(rookAttacks(popLsb(bRooks), occupied) & bArea);
+        score -= ROOK_MOB_WEIGHT * (mob - ROOK_MOB_BASELINE);
+    }
+
+    // Queens
+    Bitboard wQueens = pos.pieces(PieceType::Queen, Color::White);
+    while (wQueens) {
+        Square sq = popLsb(wQueens);
+        int mob = popCount((rookAttacks(sq, occupied) | bishopAttacks(sq, occupied)) & wArea);
+        score += QUEEN_MOB_WEIGHT * (mob - QUEEN_MOB_BASELINE);
+    }
+    Bitboard bQueens = pos.pieces(PieceType::Queen, Color::Black);
+    while (bQueens) {
+        Square sq = popLsb(bQueens);
+        int mob = popCount((rookAttacks(sq, occupied) | bishopAttacks(sq, occupied)) & bArea);
+        score -= QUEEN_MOB_WEIGHT * (mob - QUEEN_MOB_BASELINE);
+    }
+
+    return score;
+}
+
+int evaluate(const Position& pos) {
+    Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
+    Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
+
+    int score = materialAndPST(pos) + bishopPair(pos) + pawnStructure(wp, bp) +
+                passedPawns(wp, bp) + rookOpenFiles(pos, wp, bp) + mobility(pos);
+
     return (pos.sideToMove() == Color::White) ? score : -score;
 }
 
