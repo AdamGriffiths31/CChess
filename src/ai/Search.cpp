@@ -4,6 +4,7 @@
 #include "ai/MoveOrder.h"
 
 #include <cassert>
+#include <unordered_set>
 
 namespace cchess {
 
@@ -20,8 +21,57 @@ namespace cchess {
 // Construction
 // ============================================================================
 
-Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt)
-    : board_(board), config_(config), tt_(tt), stopped_(false), nodes_(0) {}
+Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
+               InfoCallback infoCallback)
+    : board_(board),
+      config_(config),
+      tt_(tt),
+      infoCallback_(std::move(infoCallback)),
+      stopped_(false),
+      nodes_(0) {}
+
+// ============================================================================
+// PV extraction from TT
+// ============================================================================
+
+std::vector<Move> Search::extractPV(int maxLength) {
+    std::vector<Move> pv;
+    std::vector<UndoInfo> undos;
+    std::unordered_set<uint64_t> seen;
+
+    for (int i = 0; i < maxLength; ++i) {
+        uint64_t hash = board_.position().hash();
+        if (seen.count(hash))
+            break;
+        seen.insert(hash);
+
+        TTEntry entry;
+        if (!tt_.probe(hash, entry) || entry.bestMove.isNull())
+            break;
+
+        // Verify move is legal
+        MoveList legal = board_.getLegalMoves();
+        bool found = false;
+        for (size_t j = 0; j < legal.size(); ++j) {
+            if (legal[j] == entry.bestMove) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            break;
+
+        pv.push_back(entry.bestMove);
+        undos.push_back(board_.makeMoveUnchecked(entry.bestMove));
+    }
+
+    // Undo all PV moves in reverse
+    for (size_t i = pv.size(); i > 0; --i) {
+        board_.unmakeMove(pv[i - 1], undos[i - 1]);
+    }
+
+    return pv;
+}
 
 // ============================================================================
 // Search
@@ -86,6 +136,21 @@ Move Search::findBestMove() {
         // Store root result in TT
         tt_.store(board_.position().hash(), scoreToTT(bestScore, 0), depth, TTBound::EXACT,
                   bestMove);
+
+        // Report search info
+        if (infoCallback_) {
+            auto elapsed = std::chrono::steady_clock::now() - startTime_;
+            int timeMs = static_cast<int>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+
+            SearchInfo info;
+            info.depth = depth;
+            info.score = bestScore;
+            info.nodes = nodes_;
+            info.timeMs = timeMs;
+            info.pv = extractPV(depth);
+            infoCallback_(info);
+        }
 
         // Stop early on forced mate
         if (bestScore >= eval::SCORE_MATE - config_.maxDepth)
@@ -296,6 +361,10 @@ int Search::quiescence(int alpha, int beta, int ply) {
 // ============================================================================
 
 void Search::checkTime() {
+    if (config_.stopSignal && config_.stopSignal->load(std::memory_order_relaxed)) {
+        stopped_ = true;
+        return;
+    }
     auto elapsed = std::chrono::steady_clock::now() - startTime_;
     if (elapsed >= config_.searchTime) {
         stopped_ = true;

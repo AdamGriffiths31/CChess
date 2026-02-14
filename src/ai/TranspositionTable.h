@@ -12,7 +12,7 @@ enum class TTBound : uint8_t { NONE = 0, EXACT, LOWER, UPPER };
 
 struct TTEntry {
     uint64_t hashVerify = 0;
-    int16_t score = 0;
+    int32_t score = 0;
     int16_t depth = 0;
     TTBound bound = TTBound::NONE;
     Move bestMove;

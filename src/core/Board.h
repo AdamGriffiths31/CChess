@@ -5,6 +5,7 @@
 #include "MoveList.h"
 #include "Position.h"
 
+#include <optional>
 #include <string>
 
 namespace cchess {
@@ -44,6 +45,8 @@ public:
     void unmakeMove(const Move& move, const UndoInfo& undo);
     MoveList getLegalMoves() const;
     bool isMoveLegal(const Move& move) const;
+    std::optional<Move> findLegalMove(Square from, Square to,
+                                      PieceType promotion = PieceType::None) const;
 
     // Game state queries
     bool isInCheck() const;

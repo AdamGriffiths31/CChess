@@ -8,5 +8,8 @@ missingInclude
 *:*catch2*
 *:*_deps*
 
+# main() has a standard signature — argv cannot be const
+constParameter:*main.cpp
+
 # Windows-specific suppressions
 unmatchedSuppression:*ConsoleUtils.cpp

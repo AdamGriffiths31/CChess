@@ -29,6 +29,12 @@ add_library(cchess_core STATIC
     mode/PlayerVsPlayer.cpp
     mode/PerftRunner.cpp
     mode/StsRunner.cpp
+    mode/OpponentList.cpp
+    mode/EngineMatch.cpp
+
+    # UCI
+    uci/Uci.cpp
+    uci/UciEngine.cpp
 
     # Utils
     utils/StringUtils.cpp
@@ -37,6 +43,8 @@ add_library(cchess_core STATIC
 target_include_directories(cchess_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+target_link_libraries(cchess_core PUBLIC nlohmann_json::nlohmann_json)
 
 # Main executable
 add_executable(cchess main.cpp)

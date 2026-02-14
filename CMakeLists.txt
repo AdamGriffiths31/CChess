@@ -12,6 +12,17 @@ option(ENABLE_CLANG_TIDY "Enable clang-tidy checks" OFF)
 option(ENABLE_CPPCHECK "Enable cppcheck analysis" OFF)
 option(ENABLE_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
+# Dependencies
+include(FetchContent)
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(json)
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

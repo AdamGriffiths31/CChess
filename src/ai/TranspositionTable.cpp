@@ -27,7 +27,6 @@ bool TranspositionTable::probe(uint64_t hash, TTEntry& entry) {
 void TranspositionTable::store(uint64_t hash, int score, int depth, TTBound bound, Move bestMove) {
     assert(bound != TTBound::NONE);
     assert(depth >= 0);
-    assert(score >= INT16_MIN && score <= INT16_MAX);
     ++stats_.stores;
     TTEntry& slot = entries_[index(hash)];
     if (slot.bound != TTBound::NONE && slot.hashVerify == hash && depth < slot.depth)
@@ -35,7 +34,7 @@ void TranspositionTable::store(uint64_t hash, int score, int depth, TTBound boun
     if (slot.bound != TTBound::NONE)
         ++stats_.overwrites;
     slot.hashVerify = hash;
-    slot.score = static_cast<int16_t>(score);
+    slot.score = score;
     slot.depth = static_cast<int16_t>(depth);
     slot.bound = bound;
     slot.bestMove = bestMove;

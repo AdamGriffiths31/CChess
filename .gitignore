@@ -47,3 +47,5 @@ Thumbs.db
 CLAUDE.md
 .claude/*
 sts/*
+docs/*
+engines/*

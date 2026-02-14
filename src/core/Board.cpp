@@ -3,8 +3,8 @@
 #include "../fen/FenParser.h"
 #include "../fen/FenValidator.h"
 #include "../utils/Error.h"
-#include "movegen/MoveGenerator.h"
 #include "Square.h"
+#include "movegen/MoveGenerator.h"
 
 namespace cchess {
 
@@ -82,6 +82,22 @@ MoveList Board::getLegalMoves() const {
 
 bool Board::isMoveLegal(const Move& move) const {
     return MoveGenerator::isLegal(position_, move);
+}
+
+std::optional<Move> Board::findLegalMove(Square from, Square to, PieceType promotion) const {
+    MoveList moves = getLegalMoves();
+    for (size_t i = 0; i < moves.size(); ++i) {
+        const Move& m = moves[i];
+        if (m.from() == from && m.to() == to) {
+            if (m.isPromotion()) {
+                if (m.promotion() == promotion)
+                    return m;
+            } else {
+                return m;
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 // ============================================================================
