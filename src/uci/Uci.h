@@ -25,7 +25,7 @@ private:
     void joinSearch();
 
     Board board_;
-    TranspositionTable tt_{16};
+    TranspositionTable tt_;
     std::atomic<bool> stopFlag_{false};
     std::thread searchThread_;
 };

@@ -57,7 +57,7 @@ inline int scoreFromTT(int score, int ply) {
 
 class TranspositionTable {
 public:
-    explicit TranspositionTable(size_t sizeMB = 16);
+    explicit TranspositionTable(size_t sizeMB = 128);
 
     bool probe(uint64_t hash, TTEntry& entry);
     void store(uint64_t hash, int score, int depth, TTBound bound, Move bestMove);
