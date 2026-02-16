@@ -44,6 +44,7 @@ public:
     UndoInfo makeMoveUnchecked(const Move& move);
     void unmakeMove(const Move& move, const UndoInfo& undo);
     MoveList getLegalMoves() const;
+    MoveList getLegalCaptures() const;
     bool isMoveLegal(const Move& move) const;
     std::optional<Move> findLegalMove(Square from, Square to,
                                       PieceType promotion = PieceType::None) const;

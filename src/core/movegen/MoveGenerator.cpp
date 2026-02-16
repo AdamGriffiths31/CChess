@@ -8,15 +8,6 @@
 namespace cchess {
 
 // ============================================================================
-// Helper Functions
-// ============================================================================
-
-Square MoveGenerator::findKingSquare(const Position& pos, Color color) {
-    Bitboard kings = pos.pieces(PieceType::King, color);
-    return kings ? lsb(kings) : SQUARE_NONE;
-}
-
-// ============================================================================
 // Per-Piece Move Generators
 // ============================================================================
 
@@ -86,69 +77,47 @@ void MoveGenerator::generatePawnMoves(const Position& pos, Square from, MoveList
     }
 }
 
-void MoveGenerator::generateKnightMoves(const Position& pos, Square from,
-                                        MoveList& moves) {
-    Bitboard friends = pos.pieces(pos.pieceAt(from).color());
-    Bitboard targets = KNIGHT_ATTACKS[from] & ~friends;
-    Bitboard occupied = pos.occupied();
-
-    while (targets) {
-        Square to = popLsb(targets);
-        moves.push_back(Move(from, to, testBit(occupied, to) ? MoveType::Capture : MoveType::Normal));
+Bitboard MoveGenerator::pieceAttacks(PieceType pt, Square sq, Bitboard occupied) {
+    switch (pt) {
+        case PieceType::Knight:
+            return KNIGHT_ATTACKS[sq];
+        case PieceType::Bishop:
+            return bishopAttacks(sq, occupied);
+        case PieceType::Rook:
+            return rookAttacks(sq, occupied);
+        case PieceType::Queen:
+            return rookAttacks(sq, occupied) | bishopAttacks(sq, occupied);
+        case PieceType::King:
+            return KING_ATTACKS[sq];
+        default:
+            return 0;
     }
 }
 
-void MoveGenerator::generateBishopMoves(const Position& pos, Square from,
-                                        MoveList& moves) {
-    Bitboard friends = pos.pieces(pos.pieceAt(from).color());
-    Bitboard occupied = pos.occupied();
-    Bitboard targets = bishopAttacks(from, occupied) & ~friends;
-    while (targets) {
-        Square to = popLsb(targets);
-        moves.push_back(Move(from, to, testBit(occupied, to) ? MoveType::Capture : MoveType::Normal));
-    }
+void MoveGenerator::serializeMoves(Square from, Bitboard targets, Bitboard enemies,
+                                   MoveList& moves) {
+    Bitboard caps = targets & enemies;
+    Bitboard quiets = targets ^ caps;
+    while (caps)
+        moves.push_back(Move(from, popLsb(caps), MoveType::Capture));
+    while (quiets)
+        moves.push_back(Move(from, popLsb(quiets), MoveType::Normal));
 }
 
-void MoveGenerator::generateRookMoves(const Position& pos, Square from, MoveList& moves) {
-    Bitboard friends = pos.pieces(pos.pieceAt(from).color());
+void MoveGenerator::generatePieceMoves(const Position& pos, Square from, MoveList& moves) {
+    const Piece& piece = pos.pieceAt(from);
     Bitboard occupied = pos.occupied();
-    Bitboard targets = rookAttacks(from, occupied) & ~friends;
-    while (targets) {
-        Square to = popLsb(targets);
-        moves.push_back(Move(from, to, testBit(occupied, to) ? MoveType::Capture : MoveType::Normal));
-    }
-}
-
-void MoveGenerator::generateQueenMoves(const Position& pos, Square from, MoveList& moves) {
-    Bitboard friends = pos.pieces(pos.pieceAt(from).color());
-    Bitboard occupied = pos.occupied();
-    Bitboard targets = (rookAttacks(from, occupied) | bishopAttacks(from, occupied)) & ~friends;
-    while (targets) {
-        Square to = popLsb(targets);
-        moves.push_back(Move(from, to, testBit(occupied, to) ? MoveType::Capture : MoveType::Normal));
-    }
-}
-
-void MoveGenerator::generateKingMoves(const Position& pos, Square from, MoveList& moves) {
-    Bitboard friends = pos.pieces(pos.pieceAt(from).color());
-    Bitboard targets = KING_ATTACKS[from] & ~friends;
-    Bitboard occupied = pos.occupied();
-
-    while (targets) {
-        Square to = popLsb(targets);
-        moves.push_back(Move(from, to, testBit(occupied, to) ? MoveType::Capture : MoveType::Normal));
-    }
+    Bitboard targets = pieceAttacks(piece.type(), from, occupied) & ~pos.pieces(piece.color());
+    serializeMoves(from, targets, pos.pieces(~piece.color()), moves);
 }
 
 void MoveGenerator::generateCastlingMoves(const Position& pos, MoveList& moves) {
     Color us = pos.sideToMove();
-    Square kingSquare = findKingSquare(pos, us);
+    Square kingSquare = pos.kingSquare(us);
 
-    if (kingSquare == SQUARE_NONE) {
-        return;  // No king found (invalid position)
-    }
+    if (kingSquare == SQUARE_NONE)
+        return;
 
-    // Can't castle if in check
     if (isInCheck(pos, us)) {
         return;
     }
@@ -202,28 +171,10 @@ MoveList MoveGenerator::generatePseudoLegalMoves(const Position& pos) {
     while (ourPieces) {
         Square sq = popLsb(ourPieces);
 
-        switch (pos.pieceAt(sq).type()) {
-            case PieceType::Pawn:
-                generatePawnMoves(pos, sq, moves);
-                break;
-            case PieceType::Knight:
-                generateKnightMoves(pos, sq, moves);
-                break;
-            case PieceType::Bishop:
-                generateBishopMoves(pos, sq, moves);
-                break;
-            case PieceType::Rook:
-                generateRookMoves(pos, sq, moves);
-                break;
-            case PieceType::Queen:
-                generateQueenMoves(pos, sq, moves);
-                break;
-            case PieceType::King:
-                generateKingMoves(pos, sq, moves);
-                break;
-            default:
-                break;
-        }
+        if (pos.pieceAt(sq).type() == PieceType::Pawn)
+            generatePawnMoves(pos, sq, moves);
+        else
+            generatePieceMoves(pos, sq, moves);
     }
 
     // Add castling moves
@@ -276,11 +227,8 @@ bool MoveGenerator::isSquareAttacked(const Position& pos, Square sq, Color byCol
 }
 
 bool MoveGenerator::isInCheck(const Position& pos, Color side) {
-    Square kingSquare = findKingSquare(pos, side);
-    if (kingSquare == SQUARE_NONE) {
-        return false;  // No king (invalid position)
-    }
-    return isSquareAttacked(pos, kingSquare, ~side);
+    Square kingSq = pos.kingSquare(side);
+    return kingSq != SQUARE_NONE && isSquareAttacked(pos, kingSq, ~side);
 }
 
 bool MoveGenerator::moveLeavesKingInCheck(Position& pos, const Move& move) {
@@ -292,6 +240,90 @@ bool MoveGenerator::moveLeavesKingInCheck(Position& pos, const Move& move) {
 }
 
 // ============================================================================
+// Capture/Promotion-Only Generation (for quiescence search)
+// ============================================================================
+
+void MoveGenerator::generatePawnCaptures(const Position& pos, Square from, MoveList& moves) {
+    Color us = pos.pieceAt(from).color();
+    File fromFile = getFile(from);
+    Rank fromRank = getRank(from);
+    int direction = (us == Color::White) ? 1 : -1;
+    Rank promotionRank = (us == Color::White) ? RANK_8 : RANK_1;
+
+    int captureRank = static_cast<int>(fromRank) + direction;
+    if (captureRank < 0 || captureRank > 7)
+        return;
+
+    // Promotion pushes (non-capture promotions are tactical)
+    if (static_cast<Rank>(captureRank) == promotionRank) {
+        Square to = makeSquare(fromFile, static_cast<Rank>(captureRank));
+        if (!testBit(pos.occupied(), to)) {
+            moves.push_back(Move::makePromotion(from, to, PieceType::Queen));
+            moves.push_back(Move::makePromotion(from, to, PieceType::Rook));
+            moves.push_back(Move::makePromotion(from, to, PieceType::Bishop));
+            moves.push_back(Move::makePromotion(from, to, PieceType::Knight));
+        }
+    }
+
+    // Diagonal captures (including promotion captures and en passant)
+    Bitboard enemies = pos.pieces(~us);
+    for (int df : {-1, 1}) {
+        int f = static_cast<int>(fromFile) + df;
+        if (f < 0 || f > 7)
+            continue;
+        Square to = makeSquare(static_cast<File>(f), static_cast<Rank>(captureRank));
+
+        if (testBit(enemies, to)) {
+            if (static_cast<Rank>(captureRank) == promotionRank) {
+                moves.push_back(Move::makePromotionCapture(from, to, PieceType::Queen));
+                moves.push_back(Move::makePromotionCapture(from, to, PieceType::Rook));
+                moves.push_back(Move::makePromotionCapture(from, to, PieceType::Bishop));
+                moves.push_back(Move::makePromotionCapture(from, to, PieceType::Knight));
+            } else {
+                moves.push_back(Move(from, to, MoveType::Capture));
+            }
+        }
+
+        if (to == pos.enPassantSquare()) {
+            moves.push_back(Move::makeEnPassant(from, to));
+        }
+    }
+}
+
+MoveList MoveGenerator::generatePseudoLegalCaptures(const Position& pos) {
+    MoveList moves;
+    Color us = pos.sideToMove();
+    Bitboard occupied = pos.occupied();
+    Bitboard enemies = pos.pieces(~us);
+    Bitboard ourPieces = pos.pieces(us);
+
+    while (ourPieces) {
+        Square sq = popLsb(ourPieces);
+        if (pos.pieceAt(sq).type() == PieceType::Pawn) {
+            generatePawnCaptures(pos, sq, moves);
+        } else {
+            Bitboard targets = pieceAttacks(pos.pieceAt(sq).type(), sq, occupied) & enemies;
+            while (targets)
+                moves.push_back(Move(sq, popLsb(targets), MoveType::Capture));
+        }
+    }
+
+    return moves;
+}
+
+MoveList MoveGenerator::generateLegalCaptures(const Position& pos) {
+    MoveList pseudoLegal = generatePseudoLegalCaptures(pos);
+    MoveList legal;
+
+    Position workspace = pos;
+    std::copy_if(
+        pseudoLegal.begin(), pseudoLegal.end(), std::back_inserter(legal),
+        [&workspace](const Move& move) { return !moveLeavesKingInCheck(workspace, move); });
+
+    return legal;
+}
+
+// ============================================================================
 // Legal Move Generation
 // ============================================================================
 
@@ -300,10 +332,9 @@ MoveList MoveGenerator::generateLegalMoves(const Position& pos) {
     MoveList legal;
 
     Position workspace = pos;
-    std::copy_if(pseudoLegal.begin(), pseudoLegal.end(), std::back_inserter(legal),
-        [&workspace](const Move& move) {
-            return !moveLeavesKingInCheck(workspace, move);
-        });
+    std::copy_if(
+        pseudoLegal.begin(), pseudoLegal.end(), std::back_inserter(legal),
+        [&workspace](const Move& move) { return !moveLeavesKingInCheck(workspace, move); });
 
     return legal;
 }
@@ -312,7 +343,7 @@ bool MoveGenerator::isLegal(const Position& pos, const Move& move) {
     // First check if the move is pseudo-legal
     MoveList pseudoLegal = generatePseudoLegalMoves(pos);
     bool found = std::any_of(pseudoLegal.begin(), pseudoLegal.end(),
-        [&move](const Move& m) { return m == move; });
+                             [&move](const Move& m) { return m == move; });
 
     if (!found) {
         return false;

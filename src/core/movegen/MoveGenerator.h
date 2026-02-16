@@ -16,6 +16,10 @@ public:
     static MoveList generateLegalMoves(const Position& pos);
     static MoveList generatePseudoLegalMoves(const Position& pos);
 
+    // Capture/promotion-only generation (for quiescence search)
+    static MoveList generateLegalCaptures(const Position& pos);
+    static MoveList generatePseudoLegalCaptures(const Position& pos);
+
     // Move validation
     static bool isLegal(const Position& pos, const Move& move);
 
@@ -32,15 +36,15 @@ public:
 private:
     // Per-piece move generators (pseudo-legal)
     static void generatePawnMoves(const Position& pos, Square from, MoveList& moves);
-    static void generateKnightMoves(const Position& pos, Square from, MoveList& moves);
-    static void generateBishopMoves(const Position& pos, Square from, MoveList& moves);
-    static void generateRookMoves(const Position& pos, Square from, MoveList& moves);
-    static void generateQueenMoves(const Position& pos, Square from, MoveList& moves);
-    static void generateKingMoves(const Position& pos, Square from, MoveList& moves);
+    static void generatePieceMoves(const Position& pos, Square from, MoveList& moves);
     static void generateCastlingMoves(const Position& pos, MoveList& moves);
 
-    // Helper to find king square
-    static Square findKingSquare(const Position& pos, Color color);
+    // Per-piece capture generators (pseudo-legal)
+    static void generatePawnCaptures(const Position& pos, Square from, MoveList& moves);
+
+    // Shared helpers
+    static Bitboard pieceAttacks(PieceType pt, Square sq, Bitboard occupied);
+    static void serializeMoves(Square from, Bitboard targets, Bitboard enemies, MoveList& moves);
 };
 
 }  // namespace cchess

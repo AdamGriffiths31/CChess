@@ -366,12 +366,10 @@ int Search::quiescence(int alpha, int beta, int ply) {
         alpha = standPat;
     Move bestMoveInNode;
 
-    MoveList allMoves = board_.getLegalMoves();
+    MoveList captures = board_.getLegalCaptures();
+    MoveOrder::sort(captures, board_.position());
 
-    Move captures[256];
-    size_t numCaptures = MoveOrder::extractCaptures(allMoves, board_.position(), captures, 256);
-
-    for (size_t i = 0; i < numCaptures; ++i) {
+    for (size_t i = 0; i < captures.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(captures[i]);
         ++nodes_;
         int score = -quiescence(-beta, -alpha, ply + 1);

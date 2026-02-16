@@ -13,6 +13,7 @@ Position::Position()
     : pieceBB_{},
       colorBB_{},
       occupied_(BB_EMPTY),
+      kingSquare_{SQUARE_NONE, SQUARE_NONE},
       sideToMove_(Color::White),
       castlingRights_(NO_CASTLING),
       enPassantSquare_(SQUARE_NONE),
@@ -44,6 +45,8 @@ void Position::setPiece(Square sq, const Piece& piece) {
     if (!piece.isEmpty()) {
         pieceBB_[static_cast<int>(piece.type())] |= squareBB(sq);
         colorBB_[static_cast<int>(piece.color())] |= squareBB(sq);
+        if (piece.type() == PieceType::King)
+            kingSquare_[static_cast<int>(piece.color())] = sq;
     }
 
     occupied_ = colorBB_[0] | colorBB_[1];
@@ -67,6 +70,7 @@ void Position::clear() {
     pieceBB_.fill(BB_EMPTY);
     colorBB_.fill(BB_EMPTY);
     occupied_ = BB_EMPTY;
+    kingSquare_ = {SQUARE_NONE, SQUARE_NONE};
     hash_ = 0;
 }
 
@@ -115,6 +119,7 @@ UndoInfo Position::makeMove(const Move& move) {
 
     if (move.isCastling()) {
         movePieceBB(from, to, PieceType::King, us);
+        kingSquare_[static_cast<size_t>(ci)] = to;
         hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::King)][from];
         hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(PieceType::King)][to];
 
@@ -154,6 +159,8 @@ UndoInfo Position::makeMove(const Move& move) {
             hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(move.promotion())][to];
         } else {
             movePieceBB(from, to, pt, us);
+            if (pt == PieceType::King)
+                kingSquare_[static_cast<size_t>(ci)] = to;
             hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(pt)][from];
             hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(pt)][to];
         }
@@ -211,6 +218,7 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
 
     if (move.isCastling()) {
         movePieceBB(to, from, PieceType::King, us);
+        kingSquare_[static_cast<int>(us)] = from;
 
         Rank rank = getRank(from);
         Square rookFrom, rookTo;
@@ -234,7 +242,10 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
             removePieceBB(to, move.promotion(), us);
             putPieceBB(from, PieceType::Pawn, us);
         } else {
-            movePieceBB(to, from, board_[to].type(), us);
+            PieceType pt = board_[to].type();
+            movePieceBB(to, from, pt, us);
+            if (pt == PieceType::King)
+                kingSquare_[static_cast<int>(us)] = from;
         }
 
         if (undo.capturedPiece.type() != PieceType::None) {

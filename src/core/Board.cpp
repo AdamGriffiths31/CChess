@@ -80,6 +80,10 @@ MoveList Board::getLegalMoves() const {
     return MoveGenerator::generateLegalMoves(position_);
 }
 
+MoveList Board::getLegalCaptures() const {
+    return MoveGenerator::generateLegalCaptures(position_);
+}
+
 bool Board::isMoveLegal(const Move& move) const {
     return MoveGenerator::isLegal(position_, move);
 }

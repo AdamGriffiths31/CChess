@@ -60,6 +60,9 @@ public:
     Bitboard pieces(PieceType pt, Color c) const { return pieces(pt) & pieces(c); }
     Bitboard occupied() const { return occupied_; }
 
+    // Cached king squares (updated incrementally)
+    Square kingSquare(Color c) const { return kingSquare_[static_cast<int>(c)]; }
+
     // Game state update methods
     void incrementHalfmoveClock() { ++halfmoveClock_; }
     void resetHalfmoveClock() { halfmoveClock_ = 0; }
@@ -102,6 +105,7 @@ private:
     std::array<Bitboard, 6> pieceBB_;  // Indexed by PieceType (Pawn..King)
     std::array<Bitboard, 2> colorBB_;  // Indexed by Color (White, Black)
     Bitboard occupied_;
+    std::array<Square, 2> kingSquare_;  // Indexed by Color
 
     Color sideToMove_;
     CastlingRights castlingRights_;
