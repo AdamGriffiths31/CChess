@@ -8,14 +8,21 @@
 
 namespace cchess {
 
-enum class TTBound : uint8_t { NONE = 0, EXACT, LOWER, UPPER };
+enum class TTBound : uint8_t { NONE = 0, EXACT = 1, LOWER = 2, UPPER = 3 };
 
+// 16-byte packed TT entry.
+// genBound packs generation (upper 6 bits) + bound (lower 2 bits).
+// hashVerify stores upper 16 bits of the Zobrist hash; lower bits are used for indexing.
 struct TTEntry {
-    uint64_t hashVerify = 0;
     int32_t score = 0;
+    uint16_t hashVerify = 0;
     int16_t depth = 0;
-    TTBound bound = TTBound::NONE;
-    Move bestMove;
+    uint8_t genBound = 0;  // generation(6) | bound(2)
+    Move bestMove;         // 4 bytes
+
+    TTBound bound() const { return static_cast<TTBound>(genBound & 0x3); }
+    uint8_t generation() const { return genBound >> 2; }
+    bool isEmpty() const { return (genBound & 0x3) == 0; }
 };
 
 struct TTStats {
@@ -61,21 +68,26 @@ public:
 
     bool probe(uint64_t hash, TTEntry& entry);
     void store(uint64_t hash, int score, int depth, TTBound bound, Move bestMove);
+    void newSearch();
     void clear();
 
-    size_t entryCount() const { return entries_.size(); }
+    size_t entryCount() const { return mask_ + 1; }
     size_t usedEntries() const;
     double occupancy() const {
-        return 100.0 * static_cast<double>(usedEntries()) / static_cast<double>(entries_.size());
+        return 100.0 * static_cast<double>(usedEntries()) / static_cast<double>(entryCount());
     }
 
     TTStats& stats() { return stats_; }
     const TTStats& stats() const { return stats_; }
 
 private:
-    size_t index(uint64_t hash) const { return hash % entries_.size(); }
+    // Lower bits of hash select the index; upper 16 bits stored for verification.
+    size_t index(uint64_t hash) const { return static_cast<size_t>(hash) & mask_; }
+    static uint16_t verifyKey(uint64_t hash) { return static_cast<uint16_t>(hash >> 48); }
 
     std::vector<TTEntry> entries_;
+    size_t mask_ = 0;
+    uint8_t generation_ = 0;  // 6-bit, wraps at 64
     TTStats stats_;
 };
 

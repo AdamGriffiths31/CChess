@@ -167,6 +167,7 @@ void EngineMatch::play() {
 
             Search search(board_, config, tt, infoCallback);
             Move best = search.findBestMove();
+            uint64_t totalNodes = search.totalNodes();
 
             std::string san = moveToSan(board_, best);
             moveUci = best.toAlgebraic();
@@ -179,7 +180,7 @@ void EngineMatch::play() {
             wtime += incMs_;
 
             int timeMs = std::max(static_cast<int>(elapsed), 1);
-            uint64_t nps = lastInfo.nodes * 1000 / static_cast<uint64_t>(timeMs);
+            uint64_t nps = totalNodes * 1000 / static_cast<uint64_t>(timeMs);
 
             // Record move
             MoveRecord rec;
@@ -189,7 +190,7 @@ void EngineMatch::play() {
             rec.side = Color::White;
             rec.depthReached = lastInfo.depth;
             rec.score = lastInfo.score;
-            rec.nodes = lastInfo.nodes;
+            rec.nodes = totalNodes;
             rec.timeMs = static_cast<int>(elapsed);
             rec.nps = nps;
             rec.pv = lastInfo.pv;
@@ -199,7 +200,7 @@ void EngineMatch::play() {
             // Print per-move metrics
             std::cout << "\nCChess plays: " << san << " (" << moveUci << ")"
                       << " | depth " << lastInfo.depth << " | score " << formatScore(lastInfo.score)
-                      << " | " << lastInfo.nodes << " nodes | " << elapsed << "ms"
+                      << " | " << totalNodes << " nodes | " << elapsed << "ms"
                       << " | " << compactNumber(nps) << "NPS\n";
 
             if (wtime <= 0) {

@@ -7,6 +7,7 @@
 #include "core/Move.h"
 #include "core/MoveList.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -31,6 +32,8 @@ public:
 
     Move findBestMove();
 
+    uint64_t totalNodes() const { return nodes_; }
+
 private:
     int negamax(int depth, int alpha, int beta, int ply);
     int quiescence(int alpha, int beta, int ply);
@@ -45,6 +48,13 @@ private:
     std::chrono::steady_clock::time_point startTime_;
     bool stopped_;
     uint64_t nodes_;
+
+    // Late Move Reduction table: lmrTable_[depth][moveIndex]
+    static constexpr int MAX_LMR_DEPTH = 64;
+    static constexpr int MAX_LMR_MOVES = 64;
+    static std::array<std::array<int, MAX_LMR_MOVES>, MAX_LMR_DEPTH> lmrTable_;
+    static bool lmrInitialized_;
+    static void initLMR();
 };
 
 }  // namespace cchess

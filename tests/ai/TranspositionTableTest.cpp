@@ -21,9 +21,8 @@ TEST_CASE("TT store then probe returns matching entry", "[tt]") {
     REQUIRE(tt.probe(hash, entry));
     REQUIRE(entry.score == 42);
     REQUIRE(entry.depth == 5);
-    REQUIRE(entry.bound == TTBound::EXACT);
+    REQUIRE(entry.bound() == TTBound::EXACT);
     REQUIRE(entry.bestMove == move);
-    REQUIRE(entry.hashVerify == hash);
 }
 
 TEST_CASE("TT always-replace overwrites", "[tt]") {
@@ -39,7 +38,7 @@ TEST_CASE("TT always-replace overwrites", "[tt]") {
     REQUIRE(tt.probe(hash, entry));
     REQUIRE(entry.score == 20);
     REQUIRE(entry.depth == 5);
-    REQUIRE(entry.bound == TTBound::UPPER);
+    REQUIRE(entry.bound() == TTBound::UPPER);
     REQUIRE(entry.bestMove == move2);
 }
 
@@ -59,8 +58,9 @@ TEST_CASE("TT clear resets all entries", "[tt]") {
 
 TEST_CASE("TT different hashes don't collide", "[tt]") {
     TranspositionTable tt(1);
-    uint64_t hash1 = 0x1000000000000000ULL;
-    uint64_t hash2 = 0x2000000000000000ULL;
+    // Hashes differ in both lower bits (index) and upper bits (verify key)
+    uint64_t hash1 = 0x1000000000000001ULL;
+    uint64_t hash2 = 0x2000000000000002ULL;
     Move move1(makeSquare(FILE_E, RANK_2), makeSquare(FILE_E, RANK_4));
     Move move2(makeSquare(FILE_D, RANK_2), makeSquare(FILE_D, RANK_4));
 
@@ -72,4 +72,37 @@ TEST_CASE("TT different hashes don't collide", "[tt]") {
     REQUIRE(entry.score == 10);
     REQUIRE(tt.probe(hash2, entry));
     REQUIRE(entry.score == 20);
+}
+
+TEST_CASE("TT entry size is 16 bytes", "[tt]") {
+    REQUIRE(sizeof(TTEntry) == 16);
+}
+
+TEST_CASE("TT table size is power of 2", "[tt]") {
+    TranspositionTable tt(1);
+    size_t count = tt.entryCount();
+    REQUIRE((count & (count - 1)) == 0);
+}
+
+TEST_CASE("TT generation aging replaces stale entries", "[tt]") {
+    TranspositionTable tt(1);
+    // Same lower bits (same index), different upper 16 bits (different verify key)
+    uint64_t hash1 = 0xAAAA00000000DDDDULL;
+    uint64_t hash2 = 0xBBBB00000000DDDDULL;
+    Move move1(makeSquare(FILE_E, RANK_2), makeSquare(FILE_E, RANK_4));
+    Move move2(makeSquare(FILE_D, RANK_2), makeSquare(FILE_D, RANK_4));
+
+    // Store deep entry for hash1
+    tt.store(hash1, 10, 8, TTBound::EXACT, move1);
+
+    // Advance generation — hash1's entry becomes stale
+    tt.newSearch();
+
+    // Shallow entry for hash2 (same index) should replace stale deep entry
+    tt.store(hash2, 20, 2, TTBound::LOWER, move2);
+    TTEntry entry;
+    REQUIRE(tt.probe(hash2, entry));
+    REQUIRE(entry.score == 20);
+    // hash1 should be gone (replaced)
+    REQUIRE_FALSE(tt.probe(hash1, entry));
 }

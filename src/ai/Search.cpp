@@ -4,14 +4,40 @@
 #include "ai/MoveOrder.h"
 
 #include <cassert>
+#include <cmath>
 #include <unordered_set>
 
 namespace cchess {
 
 // ============================================================================
+// LMR table initialization
+// ============================================================================
+
+std::array<std::array<int, Search::MAX_LMR_MOVES>, Search::MAX_LMR_DEPTH> Search::lmrTable_;
+bool Search::lmrInitialized_ = false;
+
+void Search::initLMR() {
+    if (lmrInitialized_)
+        return;
+    constexpr double K = 2.0;
+    for (size_t d = 0; d < MAX_LMR_DEPTH; ++d) {
+        for (size_t m = 0; m < MAX_LMR_MOVES; ++m) {
+            if (d == 0 || m == 0)
+                lmrTable_[d][m] = 0;
+            else
+                lmrTable_[d][m] = static_cast<int>(std::log(static_cast<double>(d)) *
+                                                   std::log(static_cast<double>(m)) / K);
+        }
+    }
+    lmrInitialized_ = true;
+}
+
+// ============================================================================
 // Search features:
 //   - Iterative deepening with time control
 //   - Negamax + alpha-beta pruning
+//   - Principal Variation Search (PVS)
+//   - Late Move Reductions (LMR)
 //   - Quiescence search (captures + promotions) to eliminate the horizon effect
 //   - Transposition table with best-move ordering
 //   - MVV-LVA capture ordering (see MoveOrder.cpp)
@@ -28,7 +54,9 @@ Search::Search(const Board& board, const SearchConfig& config, TranspositionTabl
       tt_(tt),
       infoCallback_(std::move(infoCallback)),
       stopped_(false),
-      nodes_(0) {}
+      nodes_(0) {
+    initLMR();
+}
 
 // ============================================================================
 // PV extraction from TT
@@ -81,6 +109,7 @@ Move Search::findBestMove() {
     startTime_ = std::chrono::steady_clock::now();
     stopped_ = false;
     nodes_ = 0;
+    tt_.newSearch();
     Move bestMove;
 
     for (int depth = 1; depth <= config_.maxDepth; ++depth) {
@@ -180,7 +209,7 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
             bool isPvNode = (beta - alpha > 1);
             if (!isPvNode) {
                 int ttScore = scoreFromTT(ttEntry.score, ply);
-                switch (ttEntry.bound) {
+                switch (ttEntry.bound()) {
                     case TTBound::EXACT:
                         ++tt_.stats().cutoffs;
                         return ttScore;
@@ -223,16 +252,37 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
     int bestScore = -eval::SCORE_INFINITY;
     Move bestMoveInNode;
     int origAlpha = alpha;
+    bool inCheck = board_.isInCheck();
 
     for (size_t i = 0; i < moves.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
         ++nodes_;
 
+        bool givesCheck = board_.isInCheck();
+
         int score;
         if (i == 0) {
             score = -negamax(depth - 1, -beta, -alpha, ply + 1);
         } else {
-            score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1);
+            // Late Move Reduction
+            int reduction = 0;
+            if (depth >= 3 && i >= 2 && !inCheck && !givesCheck && !moves[i].isCapture() &&
+                !moves[i].isPromotion()) {
+                size_t di = static_cast<size_t>(std::min(depth, MAX_LMR_DEPTH - 1));
+                size_t mi = std::min(i, static_cast<size_t>(MAX_LMR_MOVES - 1));
+                reduction = lmrTable_[di][mi];
+                // Don't reduce into qsearch
+                if (reduction >= depth - 1)
+                    reduction = depth - 2;
+            }
+
+            score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+
+            // Re-search at full depth if reduced search beat alpha
+            if (reduction > 0 && score > alpha)
+                score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1);
+
+            // PVS re-search with full window
             if (score > alpha && score < beta)
                 score = -negamax(depth - 1, -beta, -alpha, ply + 1);
         }
@@ -289,15 +339,15 @@ int Search::quiescence(int alpha, int beta, int ply) {
     TTEntry ttEntry;
     if (tt_.probe(posHash, ttEntry)) {
         int ttScore = scoreFromTT(ttEntry.score, ply);
-        if (ttEntry.bound == TTBound::EXACT) {
+        if (ttEntry.bound() == TTBound::EXACT) {
             ++tt_.stats().cutoffs;
             return ttScore;
         }
-        if (ttEntry.bound == TTBound::LOWER && ttScore >= beta) {
+        if (ttEntry.bound() == TTBound::LOWER && ttScore >= beta) {
             ++tt_.stats().cutoffs;
             return ttScore;
         }
-        if (ttEntry.bound == TTBound::UPPER && ttScore <= alpha) {
+        if (ttEntry.bound() == TTBound::UPPER && ttScore <= alpha) {
             ++tt_.stats().cutoffs;
             return ttScore;
         }
