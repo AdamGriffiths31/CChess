@@ -37,8 +37,9 @@ void Search::initLMR() {
 //   - Iterative deepening with time control
 //   - Negamax + alpha-beta pruning
 //   - Principal Variation Search (PVS)
+//   - Null Move Pruning (NMP)
 //   - Late Move Reductions (LMR)
-//   - Quiescence search (captures + promotions) to eliminate the horizon effect
+//   - Quiescence search (captures + promotions only)
 //   - Transposition table with best-move ordering
 //   - MVV-LVA capture ordering (see MoveOrder.cpp)
 // ============================================================================
@@ -134,13 +135,15 @@ Move Search::findBestMove() {
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
             ++nodes_;
 
+            bool givesCheck = board_.isInCheck();
+
             int score;
             if (i == 0) {
-                score = -negamax(depth - 1, -beta, -alpha, 1);
+                score = -negamax(depth - 1, -beta, -alpha, 1, givesCheck);
             } else {
-                score = -negamax(depth - 1, -alpha - 1, -alpha, 1);
+                score = -negamax(depth - 1, -alpha - 1, -alpha, 1, givesCheck);
                 if (score > alpha && score < beta)
-                    score = -negamax(depth - 1, -beta, -alpha, 1);
+                    score = -negamax(depth - 1, -beta, -alpha, 1, givesCheck);
             }
 
             board_.unmakeMove(moves[i], undo);
@@ -189,7 +192,7 @@ Move Search::findBestMove() {
     return bestMove;
 }
 
-int Search::negamax(int depth, int alpha, int beta, int ply) {
+int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool nullOk) {
     assert(alpha < beta);
     assert(depth >= 0);
     assert(ply >= 0);
@@ -198,6 +201,12 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
         checkTime();
     if (stopped_)
         return 0;
+
+    if (board_.isDraw())
+        return eval::SCORE_DRAW;
+
+    if (depth == 0)
+        return quiescence(alpha, beta, ply);
 
     // TT probe
     Move ttMove;
@@ -232,27 +241,39 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
         }
     }
 
+    // Null move pruning: if we can skip our turn and still beat beta,
+    // the position is so good that we can prune this branch.
+    // Don't use when in check, at PV nodes, or after a previous null move.
+    constexpr int NMP_REDUCTION = 2;
+    bool isPvNode = (beta - alpha > 1);
+    if (nullOk && !isPvNode && !inCheck && depth >= 3) {
+        Square prevEp = board_.enPassantSquare();
+        uint64_t prevHash = board_.position().hash();
+        board_.makeNullMove();
+        int nullScore =
+            -negamax(depth - 1 - NMP_REDUCTION, -beta, -beta + 1, ply + 1, false, false);
+        board_.unmakeNullMove(prevEp, prevHash);
+
+        if (stopped_)
+            return 0;
+        if (nullScore >= beta)
+            return beta;
+    }
+
     MoveList moves = board_.getLegalMoves();
 
     if (moves.empty()) {
-        if (board_.isInCheck()) {
+        if (inCheck) {
             return -(eval::SCORE_MATE - ply);  // Checkmate
         }
         return eval::SCORE_DRAW;  // Stalemate
     }
-
-    if (board_.isDraw())
-        return eval::SCORE_DRAW;
-
-    if (depth == 0)
-        return quiescence(alpha, beta, ply);
 
     MoveOrder::sort(moves, board_.position(), ttMove);
 
     int bestScore = -eval::SCORE_INFINITY;
     Move bestMoveInNode;
     int origAlpha = alpha;
-    bool inCheck = board_.isInCheck();
 
     for (size_t i = 0; i < moves.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
@@ -262,7 +283,7 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
 
         int score;
         if (i == 0) {
-            score = -negamax(depth - 1, -beta, -alpha, ply + 1);
+            score = -negamax(depth - 1, -beta, -alpha, ply + 1, givesCheck);
         } else {
             // Late Move Reduction
             int reduction = 0;
@@ -276,15 +297,15 @@ int Search::negamax(int depth, int alpha, int beta, int ply) {
                     reduction = depth - 2;
             }
 
-            score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+            score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, givesCheck);
 
             // Re-search at full depth if reduced search beat alpha
             if (reduction > 0 && score > alpha)
-                score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1);
+                score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1, givesCheck);
 
             // PVS re-search with full window
             if (score > alpha && score < beta)
-                score = -negamax(depth - 1, -beta, -alpha, ply + 1);
+                score = -negamax(depth - 1, -beta, -alpha, ply + 1, givesCheck);
         }
 
         board_.unmakeMove(moves[i], undo);

@@ -43,6 +43,10 @@ public:
     bool makeMove(const Move& move);
     UndoInfo makeMoveUnchecked(const Move& move);
     void unmakeMove(const Move& move, const UndoInfo& undo);
+    void makeNullMove() { position_.makeNullMove(); }
+    void unmakeNullMove(Square prevEp, uint64_t prevHash) {
+        position_.unmakeNullMove(prevEp, prevHash);
+    }
     MoveList getLegalMoves() const;
     MoveList getLegalCaptures() const;
     bool isMoveLegal(const Move& move) const;

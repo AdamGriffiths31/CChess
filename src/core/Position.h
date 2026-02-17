@@ -51,6 +51,10 @@ public:
     UndoInfo makeMove(const Move& move);
     void unmakeMove(const Move& move, const UndoInfo& undo);
 
+    // Null move (flip side, clear en passant, update hash)
+    void makeNullMove();
+    void unmakeNullMove(Square prevEp, uint64_t prevHash);
+
     // Board operations
     void clear();
 

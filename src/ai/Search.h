@@ -35,7 +35,7 @@ public:
     uint64_t totalNodes() const { return nodes_; }
 
 private:
-    int negamax(int depth, int alpha, int beta, int ply);
+    int negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool nullOk = true);
     int quiescence(int alpha, int beta, int ply);
     void checkTime();
     std::vector<Move> extractPV(int maxLength);

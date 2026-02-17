@@ -265,6 +265,21 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
     }
 }
 
+void Position::makeNullMove() {
+    hash_ ^= zobrist::sideKey;
+    if (enPassantSquare_ != SQUARE_NONE) {
+        hash_ ^= zobrist::enPassantKeys[getFile(enPassantSquare_)];
+        enPassantSquare_ = SQUARE_NONE;
+    }
+    sideToMove_ = ~sideToMove_;
+}
+
+void Position::unmakeNullMove(Square prevEp, uint64_t prevHash) {
+    sideToMove_ = ~sideToMove_;
+    enPassantSquare_ = prevEp;
+    hash_ = prevHash;
+}
+
 void Position::updateCastlingRightsForMove(const Move& move, const Piece& movedPiece) {
     Color us = sideToMove_;
 

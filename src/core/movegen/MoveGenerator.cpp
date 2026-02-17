@@ -315,7 +315,7 @@ MoveList MoveGenerator::generateLegalCaptures(const Position& pos) {
     MoveList pseudoLegal = generatePseudoLegalCaptures(pos);
     MoveList legal;
 
-    Position workspace = pos;
+    Position& workspace = const_cast<Position&>(pos);
     std::copy_if(
         pseudoLegal.begin(), pseudoLegal.end(), std::back_inserter(legal),
         [&workspace](const Move& move) { return !moveLeavesKingInCheck(workspace, move); });
@@ -331,7 +331,7 @@ MoveList MoveGenerator::generateLegalMoves(const Position& pos) {
     MoveList pseudoLegal = generatePseudoLegalMoves(pos);
     MoveList legal;
 
-    Position workspace = pos;
+    Position& workspace = const_cast<Position&>(pos);
     std::copy_if(
         pseudoLegal.begin(), pseudoLegal.end(), std::back_inserter(legal),
         [&workspace](const Move& move) { return !moveLeavesKingInCheck(workspace, move); });
@@ -349,8 +349,7 @@ bool MoveGenerator::isLegal(const Position& pos, const Move& move) {
         return false;
     }
 
-    // Then check if it leaves the king in check
-    Position workspace = pos;
+    Position& workspace = const_cast<Position&>(pos);
     return !moveLeavesKingInCheck(workspace, move);
 }
 
