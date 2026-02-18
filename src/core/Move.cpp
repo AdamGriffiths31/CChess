@@ -6,52 +6,6 @@
 
 namespace cchess {
 
-Move::Move()
-    : from_(SQUARE_NONE), to_(SQUARE_NONE), type_(MoveType::Normal), promotion_(PieceType::None) {}
-
-Move::Move(Square from, Square to, MoveType type)
-    : from_(from), to_(to), type_(type), promotion_(PieceType::None) {}
-
-Move::Move(Square from, Square to, MoveType type, PieceType promotion)
-    : from_(from), to_(to), type_(type), promotion_(promotion) {}
-
-Move Move::makePromotion(Square from, Square to, PieceType promotion) {
-    return Move(from, to, MoveType::Promotion, promotion);
-}
-
-Move Move::makePromotionCapture(Square from, Square to, PieceType promotion) {
-    return Move(from, to, MoveType::PromotionCapture, promotion);
-}
-
-Move Move::makeCastling(Square from, Square to) {
-    return Move(from, to, MoveType::Castling);
-}
-
-Move Move::makeEnPassant(Square from, Square to) {
-    return Move(from, to, MoveType::EnPassant);
-}
-
-bool Move::isCapture() const {
-    return type_ == MoveType::Capture || type_ == MoveType::PromotionCapture ||
-           type_ == MoveType::EnPassant;
-}
-
-bool Move::isPromotion() const {
-    return type_ == MoveType::Promotion || type_ == MoveType::PromotionCapture;
-}
-
-bool Move::isCastling() const {
-    return type_ == MoveType::Castling;
-}
-
-bool Move::isEnPassant() const {
-    return type_ == MoveType::EnPassant;
-}
-
-bool Move::isNull() const {
-    return from_ == SQUARE_NONE || to_ == SQUARE_NONE;
-}
-
 std::string Move::toAlgebraic() const {
     if (isNull()) {
         return "0000";
@@ -127,15 +81,6 @@ std::optional<Move> Move::fromAlgebraic(const std::string& str) {
 
     // Regular move (type will be determined later)
     return Move(*fromSq, *toSq, MoveType::Normal);
-}
-
-bool Move::operator==(const Move& other) const {
-    return from_ == other.from_ && to_ == other.to_ && type_ == other.type_ &&
-           promotion_ == other.promotion_;
-}
-
-bool Move::operator!=(const Move& other) const {
-    return !(*this == other);
 }
 
 }  // namespace cchess
