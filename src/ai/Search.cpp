@@ -33,27 +33,16 @@ void Search::initLMR() {
 }
 
 // ============================================================================
-// Search features:
-//   - Iterative deepening with time control
-//   - Negamax + alpha-beta pruning
-//   - Principal Variation Search (PVS)
-//   - Null Move Pruning (NMP)
-//   - Late Move Reductions (LMR)
-//   - Quiescence search (captures + promotions only)
-//   - Transposition table with best-move ordering
-//   - MVV-LVA capture ordering (see MoveOrder.cpp)
-// ============================================================================
-
-// ============================================================================
 // Construction
 // ============================================================================
 
 Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
-               InfoCallback infoCallback)
+               InfoCallback infoCallback, std::vector<uint64_t> gameHistory)
     : board_(board),
       config_(config),
       tt_(tt),
       infoCallback_(std::move(infoCallback)),
+      gameHistory_(std::move(gameHistory)),
       stopped_(false),
       nodes_(0) {
     initLMR();
@@ -103,9 +92,66 @@ std::vector<Move> Search::extractPV(int maxLength) {
 }
 
 // ============================================================================
+// Repetition detection
+// ============================================================================
+
+// Returns true if the current position is a draw by repetition.
+//
+// Strategy: treat any repetition as an immediate draw during search.
+// - One prior occurrence within the current search path (searchStack_) = draw.
+//   This avoids the engine voluntarily entering a line it can repeat indefinitely.
+// - Two prior occurrences in the game history (gameHistory_) = draw.
+//   This correctly implements 3-fold repetition for positions reached before search.
+//
+// We only look back as far as the halfmove clock allows, since any pawn move
+// or capture resets it and makes repetition impossible beyond that point.
+bool Search::isRepetition() const {
+    uint64_t hash = board_.position().hash();
+    int halfmove = board_.position().halfmoveClock();
+
+    // Count occurrences in current search path (excluding the current node itself).
+    // Any match here = 2-fold repetition within the search = treat as draw.
+    int searchSize = static_cast<int>(searchStack_.size());
+    int searchLookback = std::min(searchSize, halfmove);
+    for (int i = searchSize - 1; i >= searchSize - searchLookback; --i) {
+        if (searchStack_[static_cast<size_t>(i)] == hash)
+            return true;
+    }
+
+    // Count occurrences in game history (positions before search started).
+    // Need two matches there for 3-fold repetition.
+    int historyLookback = halfmove - searchSize;
+    if (historyLookback > 0) {
+        int histSize = static_cast<int>(gameHistory_.size());
+        int start = histSize - historyLookback;
+        if (start < 0)
+            start = 0;
+        int historyCount = 0;
+        for (int i = start; i < histSize; ++i) {
+            if (gameHistory_[static_cast<size_t>(i)] == hash) {
+                if (++historyCount >= 2)
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// ============================================================================
 // Search
 // ============================================================================
 
+// Runs iterative deepening and returns the best move found within the time/
+// depth limits.  Each iteration calls negamax with the following features:
+//   - Negamax + alpha-beta pruning
+//   - Principal Variation Search (PVS)
+//   - Null Move Pruning (NMP)
+//   - Late Move Reductions (LMR)
+//   - Quiescence search (captures + promotions only)
+//   - Transposition table with best-move ordering
+//   - MVV-LVA capture ordering (see MoveOrder.cpp)
+//   - Repetition detection (2-fold within search, 3-fold from game history)
 Move Search::findBestMove() {
     startTime_ = std::chrono::steady_clock::now();
     stopped_ = false;
@@ -131,7 +177,9 @@ Move Search::findBestMove() {
 
         MoveOrder::sort(moves, board_.position(), ttMove);
 
+        uint64_t rootHash = board_.position().hash();
         for (size_t i = 0; i < moves.size(); ++i) {
+            searchStack_.push_back(rootHash);
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
             ++nodes_;
 
@@ -147,6 +195,7 @@ Move Search::findBestMove() {
             }
 
             board_.unmakeMove(moves[i], undo);
+            searchStack_.pop_back();
 
             if (stopped_)
                 break;
@@ -202,7 +251,8 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
     if (stopped_)
         return 0;
 
-    if (board_.isDraw())
+    // Draw detection: 50-move rule and repetition
+    if (board_.isDraw() || isRepetition())
         return eval::SCORE_DRAW;
 
     if (depth == 0)
@@ -276,6 +326,8 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
     int origAlpha = alpha;
 
     for (size_t i = 0; i < moves.size(); ++i) {
+        // Push current hash so children can detect repetition back to this node
+        searchStack_.push_back(posHash);
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
         ++nodes_;
 
@@ -309,6 +361,7 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         }
 
         board_.unmakeMove(moves[i], undo);
+        searchStack_.pop_back();
 
         if (stopped_)
             return 0;

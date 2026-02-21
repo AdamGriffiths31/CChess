@@ -60,6 +60,7 @@ void Uci::handleNewGame() {
     joinSearch();
     tt_.clear();
     board_ = Board();
+    gameHistory_.clear();
 }
 
 void Uci::handlePosition(std::istringstream& args) {
@@ -67,6 +68,8 @@ void Uci::handlePosition(std::istringstream& args) {
 
     std::string token;
     args >> token;
+
+    gameHistory_.clear();
 
     if (token == "startpos") {
         board_ = Board();
@@ -83,7 +86,7 @@ void Uci::handlePosition(std::istringstream& args) {
         args >> token;  // consume "moves" if present
     }
 
-    // Apply moves
+    // Apply moves, recording hash before each move for repetition detection
     while (args >> token) {
         if (token == "moves")
             continue;
@@ -95,6 +98,7 @@ void Uci::handlePosition(std::istringstream& args) {
         PieceType promo = parsed->isPromotion() ? parsed->promotion() : PieceType::None;
         auto legal = board_.findLegalMove(parsed->from(), parsed->to(), promo);
         if (legal) {
+            gameHistory_.push_back(board_.position().hash());
             board_.makeMoveUnchecked(*legal);
         }
     }
@@ -185,11 +189,13 @@ void Uci::handleGo(std::istringstream& args) {
 
     // Launch search in background thread
     Board boardCopy = board_;
-    searchThread_ = std::thread([this, config, infoCallback, boardCopy]() {
-        Search search(boardCopy, config, tt_, infoCallback);
-        Move best = search.findBestMove();
-        std::cout << "bestmove " << best.toAlgebraic() << "\n";
-    });
+    std::vector<uint64_t> historyCopy = gameHistory_;
+    searchThread_ = std::thread(
+        [this, config, infoCallback, boardCopy, historyCopy = std::move(historyCopy)]() mutable {
+            Search search(boardCopy, config, tt_, infoCallback, std::move(historyCopy));
+            Move best = search.findBestMove();
+            std::cout << "bestmove " << best.toAlgebraic() << "\n";
+        });
 }
 
 void Uci::handleStop() {

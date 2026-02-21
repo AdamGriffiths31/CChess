@@ -28,7 +28,7 @@ using InfoCallback = std::function<void(const SearchInfo&)>;
 class Search {
 public:
     Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
-           InfoCallback infoCallback = nullptr);
+           InfoCallback infoCallback = nullptr, std::vector<uint64_t> gameHistory = {});
 
     Move findBestMove();
 
@@ -40,10 +40,16 @@ private:
     void checkTime();
     std::vector<Move> extractPV(int maxLength);
 
+    bool isRepetition() const;
+
     Board board_;
     SearchConfig config_;
     TranspositionTable& tt_;
     InfoCallback infoCallback_;
+
+    // Repetition detection: game history before search + current search path
+    std::vector<uint64_t> gameHistory_;  // hashes from game moves before search
+    std::vector<uint64_t> searchStack_;  // hashes pushed during search (size == ply)
 
     std::chrono::steady_clock::time_point startTime_;
     bool stopped_;

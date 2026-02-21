@@ -5,8 +5,10 @@
 #include "core/Board.h"
 
 #include <atomic>
+#include <cstdint>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 namespace cchess {
 
@@ -25,6 +27,7 @@ private:
     void joinSearch();
 
     Board board_;
+    std::vector<uint64_t> gameHistory_;
     TranspositionTable tt_;
     std::atomic<bool> stopFlag_{false};
     std::thread searchThread_;
