@@ -48,6 +48,18 @@ Search::Search(const Board& board, const SearchConfig& config, TranspositionTabl
     initLMR();
 }
 
+// Store a killer move at the given ply: shift existing killer to slot 1, new move to slot 0.
+// Only store quiet moves (not captures or promotions).
+void Search::storeKiller(int ply, const Move& move) {
+    assert(ply >= 0 && ply < MAX_PLY);
+    auto p = static_cast<size_t>(ply);
+    // Avoid duplicate entries
+    if (killers_[p][0] == move)
+        return;
+    killers_[p][1] = killers_[p][0];
+    killers_[p][0] = move;
+}
+
 // ============================================================================
 // PV extraction from TT
 // ============================================================================
@@ -150,13 +162,15 @@ bool Search::isRepetition() const {
 //   - Late Move Reductions (LMR)
 //   - Quiescence search (captures + promotions only)
 //   - Transposition table with best-move ordering
-//   - MVV-LVA capture ordering (see MoveOrder.cpp)
+//   - MVV-LVA capture ordering + killer move heuristic (see MoveOrder.cpp)
 //   - Repetition detection (2-fold within search, 3-fold from game history)
 Move Search::findBestMove() {
     startTime_ = std::chrono::steady_clock::now();
     stopped_ = false;
     nodes_ = 0;
     tt_.newSearch();
+    for (auto& pair : killers_)
+        pair[0] = pair[1] = Move{};
     Move bestMove;
 
     for (int depth = 1; depth <= config_.maxDepth; ++depth) {
@@ -319,7 +333,9 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         return eval::SCORE_DRAW;  // Stalemate
     }
 
-    MoveOrder::sort(moves, board_.position(), ttMove);
+    assert(ply < MAX_PLY);
+    const Move* killers = killers_[static_cast<size_t>(ply)].data();
+    MoveOrder::sort(moves, board_.position(), ttMove, killers);
 
     int bestScore = -eval::SCORE_INFINITY;
     Move bestMoveInNode;
@@ -372,8 +388,12 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         }
         if (score > alpha)
             alpha = score;
-        if (alpha >= beta)
+        if (alpha >= beta) {
+            // Store killer: quiet moves that cause beta-cutoffs
+            if (!moves[i].isCapture() && !moves[i].isPromotion() && ply < MAX_PLY)
+                storeKiller(ply, moves[i]);
             break;
+        }
     }
 
     // Determine bound type and store

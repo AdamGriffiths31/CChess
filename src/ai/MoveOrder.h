@@ -11,6 +11,7 @@ namespace cchess {
 // Move ordering features:
 //   - MVV-LVA (Most Valuable Victim - Least Valuable Attacker) for captures
 //   - Promotion bonus
+//   - Killer move heuristic (quiet moves that caused beta-cutoffs at same ply)
 // ============================================================================
 
 class MoveOrder {
@@ -23,6 +24,10 @@ public:
 
     // Sort with TT move prioritized first
     static void sort(MoveList& moves, const Position& pos, const Move& ttMove);
+
+    // Sort with TT move first and killer moves scored above other quiets
+    // killers[0] and killers[1] are the two killers for the current ply
+    static void sort(MoveList& moves, const Position& pos, const Move& ttMove, const Move* killers);
 
     // Extract and sort only captures + promotions from a move list.
     // Returns the count written into `out`.

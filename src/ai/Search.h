@@ -15,6 +15,8 @@
 
 namespace cchess {
 
+constexpr int MAX_PLY = 128;
+
 struct SearchInfo {
     int depth = 0;
     int score = 0;
@@ -54,6 +56,10 @@ private:
     std::chrono::steady_clock::time_point startTime_;
     bool stopped_;
     uint64_t nodes_;
+
+    // Killer moves: two quiet moves per ply that caused a beta-cutoff
+    std::array<std::array<Move, 2>, MAX_PLY> killers_;
+    void storeKiller(int ply, const Move& move);
 
     // Late Move Reduction table: lmrTable_[depth][moveIndex]
     static constexpr int MAX_LMR_DEPTH = 64;
