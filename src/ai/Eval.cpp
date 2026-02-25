@@ -126,6 +126,20 @@ constexpr int ROOK_MOB_BASELINE = 7;
 constexpr Score QUEEN_MOB_WEIGHT = S(1, 1);
 constexpr int QUEEN_MOB_BASELINE = 14;
 
+// King safety
+// Pawn shelter: bonus per pawn on king's file or adjacent file within 2 ranks ahead
+constexpr Score SHELTER_PAWN_BONUS = S(15, 0);
+constexpr Score SHELTER_STORM_PENALTY = S(-10, 0);
+// Semi-open file near king (no own pawn, enemy pawn present): shelter gap + active storm threat
+constexpr Score KING_SEMI_OPEN_FILE_PENALTY = S(-20, 0);
+// Open file near king (no pawns at all): shelter gap only, no storm
+constexpr Score KING_OPEN_FILE_PENALTY = S(-10, 0);
+// Attacker weights for the king attack zone (indexed by PieceType: Pawn=0..King=5)
+// Knights are weighted highest — they leap past defenses and their checks are hardest to see.
+// Queen is low because it will also be counted via safe checks when that is added.
+constexpr int KING_ATTACKER_WEIGHT[] = {0, 7, 5, 4, 4, 0};
+constexpr int KING_DANGER_DIVIDER = 8;  // penalty = danger² / KING_DANGER_DIVIDER (mg only)
+
 Score materialAndPST(const Position& pos) {
     Score score;
     for (int pt = 0; pt < 6; ++pt) {
@@ -235,67 +249,177 @@ Score rookOpenFiles(const Position& pos, Bitboard wp, Bitboard bp) {
     return score;
 }
 
-Score mobility(const Position& pos) {
+Score pieceEval(const Position& pos, Bitboard wp, Bitboard bp, EvalState& state) {
     Score score;
     Bitboard occupied = pos.occupied();
 
-    // Mobility area: exclude friendly pieces and squares attacked by enemy pawns
-    Bitboard wPawnAtk = shiftNorthEast(pos.pieces(PieceType::Pawn, Color::White)) |
-                        shiftNorthWest(pos.pieces(PieceType::Pawn, Color::White));
-    Bitboard bPawnAtk = shiftSouthEast(pos.pieces(PieceType::Pawn, Color::Black)) |
-                        shiftSouthWest(pos.pieces(PieceType::Pawn, Color::Black));
+    // ---- Pawn attacks ----
+    state.pawnAtk[static_cast<int>(Color::White)] = shiftNorthEast(wp) | shiftNorthWest(wp);
+    state.pawnAtk[static_cast<int>(Color::Black)] = shiftSouthEast(bp) | shiftSouthWest(bp);
 
-    Bitboard wArea = ~(pos.pieces(Color::White) | bPawnAtk);
-    Bitboard bArea = ~(pos.pieces(Color::Black) | wPawnAtk);
-
-    // Knights
-    Bitboard wKnights = pos.pieces(PieceType::Knight, Color::White);
-    while (wKnights) {
-        int mob = popCount(KNIGHT_ATTACKS[popLsb(wKnights)] & wArea);
-        score += (mob - KNIGHT_MOB_BASELINE) * KNIGHT_MOB_WEIGHT;
-    }
-    Bitboard bKnights = pos.pieces(PieceType::Knight, Color::Black);
-    while (bKnights) {
-        int mob = popCount(KNIGHT_ATTACKS[popLsb(bKnights)] & bArea);
-        score -= (mob - KNIGHT_MOB_BASELINE) * KNIGHT_MOB_WEIGHT;
+    // Seed king and pawn attacks into the map.
+    for (int ci = 0; ci < 2; ++ci) {
+        Color c = static_cast<Color>(ci);
+        Square kSq = pos.kingSquare(c);
+        Bitboard kAtk = KING_ATTACKS[kSq];
+        state.attackedBy[ci][static_cast<int>(PieceType::King)] = kAtk;
+        state.attacked[ci] |= kAtk;
+        state.attacked[ci] |= state.pawnAtk[ci];
+        state.attackedBy[ci][static_cast<int>(PieceType::Pawn)] = state.pawnAtk[ci];
     }
 
-    // Bishops
-    Bitboard wBishops = pos.pieces(PieceType::Bishop, Color::White);
-    while (wBishops) {
-        int mob = popCount(bishopAttacks(popLsb(wBishops), occupied) & wArea);
-        score += (mob - BISHOP_MOB_BASELINE) * BISHOP_MOB_WEIGHT;
-    }
-    Bitboard bBishops = pos.pieces(PieceType::Bishop, Color::Black);
-    while (bBishops) {
-        int mob = popCount(bishopAttacks(popLsb(bBishops), occupied) & bArea);
-        score -= (mob - BISHOP_MOB_BASELINE) * BISHOP_MOB_WEIGHT;
+    // Mobility area: exclude own pieces and squares controlled by enemy pawns
+    const Bitboard wArea =
+        ~(pos.pieces(Color::White) | state.pawnAtk[static_cast<int>(Color::Black)]);
+    const Bitboard bArea =
+        ~(pos.pieces(Color::Black) | state.pawnAtk[static_cast<int>(Color::White)]);
+    const Bitboard mobArea[2] = {wArea, bArea};
+
+    // ---- Knights ----
+    for (int ci = 0; ci < 2; ++ci) {
+        Color c = static_cast<Color>(ci);
+        int sign = (ci == 0) ? 1 : -1;
+        Bitboard knights = pos.pieces(PieceType::Knight, c);
+        while (knights) {
+            Square sq = popLsb(knights);
+            Bitboard atk = KNIGHT_ATTACKS[sq];
+            state.attackedBy[ci][static_cast<int>(PieceType::Knight)] |= atk;
+            state.attacked[ci] |= atk;
+            int mob = popCount(atk & mobArea[ci]);
+            score += sign * ((mob - KNIGHT_MOB_BASELINE) * KNIGHT_MOB_WEIGHT);
+        }
     }
 
-    // Rooks
-    Bitboard wRooks = pos.pieces(PieceType::Rook, Color::White);
-    while (wRooks) {
-        int mob = popCount(rookAttacks(popLsb(wRooks), occupied) & wArea);
-        score += (mob - ROOK_MOB_BASELINE) * ROOK_MOB_WEIGHT;
-    }
-    Bitboard bRooks = pos.pieces(PieceType::Rook, Color::Black);
-    while (bRooks) {
-        int mob = popCount(rookAttacks(popLsb(bRooks), occupied) & bArea);
-        score -= (mob - ROOK_MOB_BASELINE) * ROOK_MOB_WEIGHT;
+    // ---- Bishops ----
+    for (int ci = 0; ci < 2; ++ci) {
+        Color c = static_cast<Color>(ci);
+        int sign = (ci == 0) ? 1 : -1;
+        Bitboard bishops = pos.pieces(PieceType::Bishop, c);
+        while (bishops) {
+            Square sq = popLsb(bishops);
+            Bitboard atk = bishopAttacks(sq, occupied);  // 1 magic lookup
+            state.attackedBy[ci][static_cast<int>(PieceType::Bishop)] |= atk;
+            state.attacked[ci] |= atk;
+            int mob = popCount(atk & mobArea[ci]);
+            score += sign * ((mob - BISHOP_MOB_BASELINE) * BISHOP_MOB_WEIGHT);
+        }
     }
 
-    // Queens
-    Bitboard wQueens = pos.pieces(PieceType::Queen, Color::White);
-    while (wQueens) {
-        Square sq = popLsb(wQueens);
-        int mob = popCount((rookAttacks(sq, occupied) | bishopAttacks(sq, occupied)) & wArea);
-        score += (mob - QUEEN_MOB_BASELINE) * QUEEN_MOB_WEIGHT;
+    // ---- Rooks ----
+    for (int ci = 0; ci < 2; ++ci) {
+        Color c = static_cast<Color>(ci);
+        int sign = (ci == 0) ? 1 : -1;
+        Bitboard rooks = pos.pieces(PieceType::Rook, c);
+        while (rooks) {
+            Square sq = popLsb(rooks);
+            Bitboard atk = rookAttacks(sq, occupied);  // 1 magic lookup
+            state.attackedBy[ci][static_cast<int>(PieceType::Rook)] |= atk;
+            state.attacked[ci] |= atk;
+            int mob = popCount(atk & mobArea[ci]);
+            score += sign * ((mob - ROOK_MOB_BASELINE) * ROOK_MOB_WEIGHT);
+        }
     }
-    Bitboard bQueens = pos.pieces(PieceType::Queen, Color::Black);
-    while (bQueens) {
-        Square sq = popLsb(bQueens);
-        int mob = popCount((rookAttacks(sq, occupied) | bishopAttacks(sq, occupied)) & bArea);
-        score -= (mob - QUEEN_MOB_BASELINE) * QUEEN_MOB_WEIGHT;
+
+    // ---- Queens ----
+    for (int ci = 0; ci < 2; ++ci) {
+        Color c = static_cast<Color>(ci);
+        int sign = (ci == 0) ? 1 : -1;
+        Bitboard queens = pos.pieces(PieceType::Queen, c);
+        while (queens) {
+            Square sq = popLsb(queens);
+            Bitboard atk = rookAttacks(sq, occupied) | bishopAttacks(sq, occupied);  // 2 lookups
+            state.attackedBy[ci][static_cast<int>(PieceType::Queen)] |= atk;
+            state.attacked[ci] |= atk;
+            int mob = popCount(atk & mobArea[ci]);
+            score += sign * ((mob - QUEEN_MOB_BASELINE) * QUEEN_MOB_WEIGHT);
+        }
+    }
+
+    return score;
+}
+
+Score mobility(const Position& pos) {
+    Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
+    Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
+    EvalState state;
+    return pieceEval(pos, wp, bp, state);
+}
+
+// Returns a bitboard of the 3x3 king zone (king square + all adjacent squares).
+static inline Bitboard kingZone(Square kingSq) {
+    return KING_ATTACKS[kingSq] | squareBB(kingSq);
+}
+
+Score kingSafety(const Position& pos, Bitboard wp, Bitboard bp, const EvalState& state) {
+    Score score;
+
+    for (int ci = 0; ci < 2; ++ci) {
+        Color us = static_cast<Color>(ci);
+        int them = ci ^ 1;
+
+        Square kSq = pos.kingSquare(us);
+        File kFile = getFile(kSq);
+        Rank kRank = getRank(kSq);
+        Bitboard zone = kingZone(kSq);
+
+        // ---- 1 & 2. Pawn shelter, storm, and open files ----
+        Bitboard ownPawns = (ci == 0) ? wp : bp;
+        Bitboard enemyPawns = (ci == 0) ? bp : wp;
+
+        // Build the "ahead" rank mask once — two ranks in front of the king.
+        Bitboard aheadRanks = BB_EMPTY;
+        if (ci == 0) {
+            for (int r = kRank + 1; r <= std::min(7, kRank + 2); ++r)
+                aheadRanks |= RANK_BB[r];
+        } else {
+            for (int r = std::max(0, kRank - 2); r < kRank; ++r)
+                aheadRanks |= RANK_BB[r];
+        }
+
+        int fileStart = std::max(0, static_cast<int>(kFile) - 1);
+        int fileEnd = std::min(7, static_cast<int>(kFile) + 1);
+
+        int shelterBonus = 0;
+        int stormPenalty = 0;
+        Score termFiles;
+
+        for (int f = fileStart; f <= fileEnd; ++f) {
+            Bitboard fileMask = FILE_BB[f];
+
+            if (ownPawns & fileMask & aheadRanks)
+                shelterBonus += 1;
+            if (enemyPawns & fileMask & aheadRanks)
+                stormPenalty += 1;
+
+            if (!(ownPawns & fileMask)) {
+                termFiles +=
+                    (enemyPawns & fileMask) ? KING_SEMI_OPEN_FILE_PENALTY : KING_OPEN_FILE_PENALTY;
+            }
+        }
+
+        Score termShelter =
+            shelterBonus * SHELTER_PAWN_BONUS + stormPenalty * SHELTER_STORM_PENALTY;
+
+        // ---- 3. Attacker danger in king zone ----
+        int danger = 0;
+        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Knight)] *
+                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Knight)] & zone);
+        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Bishop)] *
+                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Bishop)] & zone);
+        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Rook)] *
+                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Rook)] & zone);
+        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Queen)] *
+                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Queen)] & zone);
+
+        // Quadratic penalty, MG only.
+        int dangerPenalty = (danger * danger) / KING_DANGER_DIVIDER;
+        Score termDanger = S(-dangerPenalty, 0);
+
+        Score total = termShelter + termFiles + termDanger;
+        if (ci == 0)
+            score += total;
+        else
+            score -= total;
     }
 
     return score;
@@ -305,8 +429,10 @@ int evaluate(const Position& pos) {
     Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
     Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
 
+    EvalState state;
     Score score = materialAndPST(pos) + bishopPair(pos) + pawnStructure(wp, bp) +
-                  passedPawns(wp, bp) + rookOpenFiles(pos, wp, bp) + mobility(pos);
+                  passedPawns(wp, bp) + rookOpenFiles(pos, wp, bp) + pieceEval(pos, wp, bp, state) +
+                  kingSafety(pos, wp, bp, state);
 
     // Taper: interpolate between MG and EG based on phase
     int phase = gamePhase(pos);

@@ -35,6 +35,13 @@ constexpr Score S(int mg, int eg) {
     return {mg, eg};
 }
 
+// Attack map built once per evaluate() call and shared across eval terms.
+struct EvalState {
+    Bitboard attackedBy[2][6] = {};
+    Bitboard attacked[2] = {};
+    Bitboard pawnAtk[2] = {};
+};
+
 // Returns score relative to side to move (positive = good for side to move)
 int evaluate(const Position& pos);
 
@@ -44,7 +51,9 @@ Score bishopPair(const Position& pos);
 Score pawnStructure(Bitboard wp, Bitboard bp);
 Score passedPawns(Bitboard wp, Bitboard bp);
 Score rookOpenFiles(const Position& pos, Bitboard wp, Bitboard bp);
+Score pieceEval(const Position& pos, Bitboard wp, Bitboard bp, EvalState& state);
 Score mobility(const Position& pos);
+Score kingSafety(const Position& pos, Bitboard wp, Bitboard bp, const EvalState& state);
 
 }  // namespace eval
 }  // namespace cchess
