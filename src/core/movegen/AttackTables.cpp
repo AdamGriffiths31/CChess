@@ -7,31 +7,35 @@ namespace cchess {
 Bitboard KNIGHT_ATTACKS[64];
 Bitboard KING_ATTACKS[64];
 
-// Direction offsets for sliding pieces (used during magic table init)
-static const int ROOK_DIRECTIONS[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-static const int BISHOP_DIRECTIONS[][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
-
-namespace {
-
-// Magic bitboard tables
+// Magic bitboard tables (extern-linked for inline access in header)
 Bitboard ROOK_MASKS[64];
 Bitboard BISHOP_MASKS[64];
 uint64_t ROOK_MAGICS[64];
 uint64_t BISHOP_MAGICS[64];
 int ROOK_SHIFTS[64];
 int BISHOP_SHIFTS[64];
-Bitboard ROOK_TABLE[64][4096];    // 2MB — plain magics, max 12 relevant bits
-Bitboard BISHOP_TABLE[64][512];   // 256KB — plain magics, max 9 relevant bits
+Bitboard ROOK_TABLE[64][4096];   // 2MB — plain magics, max 12 relevant bits
+Bitboard BISHOP_TABLE[64][512];  // 256KB — plain magics, max 9 relevant bits
+
+// Direction offsets for sliding pieces (used during magic table init)
+static const int ROOK_DIRECTIONS[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+static const int BISHOP_DIRECTIONS[][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+
+namespace {
 
 // Compute the relevant occupancy mask for a rook on the given square.
 // Excludes edge squares (blockers on edges don't affect further ray travel).
 Bitboard computeRookMask(Square sq) {
     Bitboard mask = BB_EMPTY;
     int f = getFile(sq), r = getRank(sq);
-    for (int i = r + 1; i <= 6; ++i) setBit(mask, makeSquare(static_cast<File>(f), static_cast<Rank>(i)));
-    for (int i = r - 1; i >= 1; --i) setBit(mask, makeSquare(static_cast<File>(f), static_cast<Rank>(i)));
-    for (int i = f + 1; i <= 6; ++i) setBit(mask, makeSquare(static_cast<File>(i), static_cast<Rank>(r)));
-    for (int i = f - 1; i >= 1; --i) setBit(mask, makeSquare(static_cast<File>(i), static_cast<Rank>(r)));
+    for (int i = r + 1; i <= 6; ++i)
+        setBit(mask, makeSquare(static_cast<File>(f), static_cast<Rank>(i)));
+    for (int i = r - 1; i >= 1; --i)
+        setBit(mask, makeSquare(static_cast<File>(f), static_cast<Rank>(i)));
+    for (int i = f + 1; i <= 6; ++i)
+        setBit(mask, makeSquare(static_cast<File>(i), static_cast<Rank>(r)));
+    for (int i = f - 1; i >= 1; --i)
+        setBit(mask, makeSquare(static_cast<File>(i), static_cast<Rank>(r)));
     return mask;
 }
 
@@ -39,10 +43,14 @@ Bitboard computeRookMask(Square sq) {
 Bitboard computeBishopMask(Square sq) {
     Bitboard mask = BB_EMPTY;
     int f = getFile(sq), r = getRank(sq);
-    for (int i = 1; f + i <= 6 && r + i <= 6; ++i) setBit(mask, makeSquare(static_cast<File>(f + i), static_cast<Rank>(r + i)));
-    for (int i = 1; f + i <= 6 && r - i >= 1; ++i) setBit(mask, makeSquare(static_cast<File>(f + i), static_cast<Rank>(r - i)));
-    for (int i = 1; f - i >= 1 && r + i <= 6; ++i) setBit(mask, makeSquare(static_cast<File>(f - i), static_cast<Rank>(r + i)));
-    for (int i = 1; f - i >= 1 && r - i >= 1; ++i) setBit(mask, makeSquare(static_cast<File>(f - i), static_cast<Rank>(r - i)));
+    for (int i = 1; f + i <= 6 && r + i <= 6; ++i)
+        setBit(mask, makeSquare(static_cast<File>(f + i), static_cast<Rank>(r + i)));
+    for (int i = 1; f + i <= 6 && r - i >= 1; ++i)
+        setBit(mask, makeSquare(static_cast<File>(f + i), static_cast<Rank>(r - i)));
+    for (int i = 1; f - i >= 1 && r + i <= 6; ++i)
+        setBit(mask, makeSquare(static_cast<File>(f - i), static_cast<Rank>(r + i)));
+    for (int i = 1; f - i >= 1 && r - i >= 1; ++i)
+        setBit(mask, makeSquare(static_cast<File>(f - i), static_cast<Rank>(r - i)));
     return mask;
 }
 
@@ -58,7 +66,8 @@ Bitboard computeSlidingAttacks(Square sq, Bitboard occupied, bool diagonal) {
         while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
             Square s = makeSquare(static_cast<File>(f), static_cast<Rank>(r));
             setBit(attacks, s);
-            if (testBit(occupied, s)) break;
+            if (testBit(occupied, s))
+                break;
             f += df;
             r += dr;
         }
@@ -103,7 +112,8 @@ uint64_t findMagic(Square sq, Bitboard mask, int bits, Bitboard* table) {
         uint64_t magic = randomSparse();
 
         // Quick reject: check that magic maps mask to enough high bits
-        if (popCount((mask * magic) & 0xFF00000000000000ull) < 6) continue;
+        if (popCount((mask * magic) & 0xFF00000000000000ull) < 6)
+            continue;
 
         std::memset(table, 0, sizeof(Bitboard) * static_cast<size_t>(tableSize));
         bool ok = true;
@@ -118,7 +128,8 @@ uint64_t findMagic(Square sq, Bitboard mask, int bits, Bitboard* table) {
             }
         }
 
-        if (ok) return magic;
+        if (ok)
+            return magic;
     }
 
     // Should never reach here with reasonable bit counts
@@ -126,8 +137,8 @@ uint64_t findMagic(Square sq, Bitboard mask, int bits, Bitboard* table) {
 }
 
 bool initAttackTables() {
-    static const int knightOffsets[][2] = {{2, 1},  {2, -1},  {-2, 1}, {-2, -1},
-                                           {1, 2},  {1, -2},  {-1, 2}, {-1, -2}};
+    static const int knightOffsets[][2] = {{2, 1}, {2, -1}, {-2, 1}, {-2, -1},
+                                           {1, 2}, {1, -2}, {-1, 2}, {-1, -2}};
     static const int kingOffsets[][2] = {{1, 0}, {-1, 0}, {0, 1},  {0, -1},
                                          {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
 
@@ -173,14 +184,5 @@ bool initAttackTables() {
 bool tablesInitialized = initAttackTables();
 
 }  // anonymous namespace
-
-// O(1) sliding attack lookups
-Bitboard rookAttacks(Square sq, Bitboard occupied) {
-    return ROOK_TABLE[sq][((occupied & ROOK_MASKS[sq]) * ROOK_MAGICS[sq]) >> ROOK_SHIFTS[sq]];
-}
-
-Bitboard bishopAttacks(Square sq, Bitboard occupied) {
-    return BISHOP_TABLE[sq][((occupied & BISHOP_MASKS[sq]) * BISHOP_MAGICS[sq]) >> BISHOP_SHIFTS[sq]];
-}
 
 }  // namespace cchess

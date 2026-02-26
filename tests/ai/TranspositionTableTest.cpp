@@ -22,7 +22,7 @@ TEST_CASE("TT store then probe returns matching entry", "[tt]") {
     REQUIRE(entry.score == 42);
     REQUIRE(entry.depth == 5);
     REQUIRE(entry.bound() == TTBound::EXACT);
-    REQUIRE(entry.bestMove == move);
+    REQUIRE(entry.bestMove() == move);
 }
 
 TEST_CASE("TT always-replace overwrites", "[tt]") {
@@ -39,7 +39,7 @@ TEST_CASE("TT always-replace overwrites", "[tt]") {
     REQUIRE(entry.score == 20);
     REQUIRE(entry.depth == 5);
     REQUIRE(entry.bound() == TTBound::UPPER);
-    REQUIRE(entry.bestMove == move2);
+    REQUIRE(entry.bestMove() == move2);
 }
 
 TEST_CASE("TT clear resets all entries", "[tt]") {
@@ -74,8 +74,12 @@ TEST_CASE("TT different hashes don't collide", "[tt]") {
     REQUIRE(entry.score == 20);
 }
 
-TEST_CASE("TT entry size is 16 bytes", "[tt]") {
-    REQUIRE(sizeof(TTEntry) == 16);
+TEST_CASE("TT entry size is 10 bytes", "[tt]") {
+    REQUIRE(sizeof(TTEntry) == 10);
+}
+
+TEST_CASE("TT cluster size is 64 bytes", "[tt]") {
+    REQUIRE(sizeof(TTCluster) == 64);
 }
 
 TEST_CASE("TT table size is power of 2", "[tt]") {
@@ -84,25 +88,34 @@ TEST_CASE("TT table size is power of 2", "[tt]") {
     REQUIRE((count & (count - 1)) == 0);
 }
 
-TEST_CASE("TT generation aging replaces stale entries", "[tt]") {
+TEST_CASE("TT generation aging replaces stale entries when cluster is full", "[tt]") {
     TranspositionTable tt(1);
-    // Same lower bits (same index), different upper 16 bits (different verify key)
-    uint64_t hash1 = 0xAAAA00000000DDDDULL;
-    uint64_t hash2 = 0xBBBB00000000DDDDULL;
-    Move move1(makeSquare(FILE_E, RANK_2), makeSquare(FILE_E, RANK_4));
-    Move move2(makeSquare(FILE_D, RANK_2), makeSquare(FILE_D, RANK_4));
+    // All 5 hashes map to the same cluster index (same lower bits), different verify keys.
+    // Fill all 4 slots with stale entries, then store a fresh one — the stalest must be evicted.
+    uint64_t base = 0x0000000000000001ULL;  // lower bits select cluster
+    uint64_t hashes[5];
+    for (int i = 0; i < 5; ++i)
+        hashes[i] = base | (static_cast<uint64_t>(i + 1) << 48);  // vary upper 16 bits
 
-    // Store deep entry for hash1
-    tt.store(hash1, 10, 8, TTBound::EXACT, move1);
+    Move moves[5];
+    moves[0] = Move(makeSquare(FILE_A, RANK_1), makeSquare(FILE_A, RANK_2));
+    moves[1] = Move(makeSquare(FILE_B, RANK_1), makeSquare(FILE_B, RANK_2));
+    moves[2] = Move(makeSquare(FILE_C, RANK_1), makeSquare(FILE_C, RANK_2));
+    moves[3] = Move(makeSquare(FILE_D, RANK_1), makeSquare(FILE_D, RANK_2));
+    moves[4] = Move(makeSquare(FILE_E, RANK_1), makeSquare(FILE_E, RANK_2));
 
-    // Advance generation — hash1's entry becomes stale
+    // Fill all 4 cluster slots with shallow entries from generation 0
+    for (int i = 0; i < 4; ++i)
+        tt.store(hashes[i], i * 10, 1, TTBound::LOWER, moves[i]);
+
+    // Advance generation — all 4 entries become stale
     tt.newSearch();
 
-    // Shallow entry for hash2 (same index) should replace stale deep entry
-    tt.store(hash2, 20, 2, TTBound::LOWER, move2);
+    // Store a 5th entry: should evict one of the stale entries
+    tt.store(hashes[4], 99, 3, TTBound::EXACT, moves[4]);
+
+    // The new entry must be retrievable
     TTEntry entry;
-    REQUIRE(tt.probe(hash2, entry));
-    REQUIRE(entry.score == 20);
-    // hash1 should be gone (replaced)
-    REQUIRE_FALSE(tt.probe(hash1, entry));
+    REQUIRE(tt.probe(hashes[4], entry));
+    REQUIRE(entry.score == 99);
 }

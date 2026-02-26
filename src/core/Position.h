@@ -7,6 +7,7 @@
 #include "Types.h"
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 
 namespace cchess {
@@ -25,7 +26,10 @@ public:
     Position();
 
     // Piece access
-    const Piece& pieceAt(Square sq) const;
+    const Piece& pieceAt(Square sq) const {
+        assert(cchess::squareIsValid(sq));
+        return board_[sq];
+    }
     void setPiece(Square sq, const Piece& piece);
     void clearSquare(Square sq);
 

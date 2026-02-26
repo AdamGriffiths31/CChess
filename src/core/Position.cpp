@@ -22,11 +22,6 @@ Position::Position()
     clear();
 }
 
-const Piece& Position::pieceAt(Square sq) const {
-    assert(cchess::squareIsValid(sq));
-    return board_[sq];
-}
-
 void Position::setPiece(Square sq, const Piece& piece) {
     assert(cchess::squareIsValid(sq));
     assert(piece.isValid());

@@ -76,14 +76,14 @@ std::vector<Move> Search::extractPV(int maxLength) {
         seen.insert(hash);
 
         TTEntry entry;
-        if (!tt_.probe(hash, entry) || entry.bestMove.isNull())
+        if (!tt_.probe(hash, entry) || entry.bestMove().isNull())
             break;
 
         // Verify move is legal
         MoveList legal = board_.getLegalMoves();
         bool found = false;
         for (size_t j = 0; j < legal.size(); ++j) {
-            if (legal[j] == entry.bestMove) {
+            if (legal[j] == entry.bestMove()) {
                 found = true;
                 break;
             }
@@ -91,8 +91,8 @@ std::vector<Move> Search::extractPV(int maxLength) {
         if (!found)
             break;
 
-        pv.push_back(entry.bestMove);
-        undos.push_back(board_.makeMoveUnchecked(entry.bestMove));
+        pv.push_back(entry.bestMove());
+        undos.push_back(board_.makeMoveUnchecked(entry.bestMove()));
     }
 
     // Undo all PV moves in reverse
@@ -187,7 +187,7 @@ Move Search::findBestMove() {
         Move ttMove;
         TTEntry ttEntry;
         if (tt_.probe(board_.position().hash(), ttEntry))
-            ttMove = ttEntry.bestMove;
+            ttMove = ttEntry.bestMove();
 
         MoveOrder::sort(moves, board_.position(), ttMove);
 
@@ -277,7 +277,7 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
     uint64_t posHash = board_.position().hash();
     TTEntry ttEntry;
     if (tt_.probe(posHash, ttEntry)) {
-        ttMove = ttEntry.bestMove;
+        ttMove = ttEntry.bestMove();
         if (ttEntry.depth >= depth) {
             bool isPvNode = (beta - alpha > 1);
             if (!isPvNode) {
@@ -346,6 +346,7 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         searchStack_.push_back(posHash);
         UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
         ++nodes_;
+        tt_.prefetch(board_.position().hash());  // hide TT latency behind isInCheck()
 
         bool givesCheck = board_.isInCheck();
 
@@ -466,6 +467,7 @@ int Search::quiescence(int alpha, int beta, int ply) {
     for (size_t i = 0; i < captures.size(); ++i) {
         UndoInfo undo = board_.makeMoveUnchecked(captures[i]);
         ++nodes_;
+        tt_.prefetch(board_.position().hash());  // hide TT latency
         int score = -quiescence(-beta, -alpha, ply + 1);
         board_.unmakeMove(captures[i], undo);
 

@@ -7,55 +7,69 @@
 namespace cchess {
 
 TranspositionTable::TranspositionTable(size_t sizeMB) {
-    size_t numEntries = (sizeMB * 1024 * 1024) / sizeof(TTEntry);
+    size_t numClusters = (sizeMB * 1024 * 1024) / sizeof(TTCluster);
     // Round down to power of 2
     size_t pot = 1;
-    while (pot * 2 <= numEntries)
+    while (pot * 2 <= numClusters)
         pot *= 2;
-    entries_.resize(pot);
+    clusters_.resize(pot);
     mask_ = pot - 1;
 }
 
-bool TranspositionTable::probe(uint64_t hash, TTEntry& entry) {
-    ++stats_.probes;
-    const TTEntry& slot = entries_[index(hash)];
-    if (!slot.isEmpty() && slot.hashVerify == verifyKey(hash)) {
-        entry = slot;
-        ++stats_.hits;
-        return true;
-    }
-    return false;
-}
-
-void TranspositionTable::store(uint64_t hash, int score, int depth, TTBound bound, Move bestMove) {
+void TranspositionTable::store(uint64_t hash, int score, int depth, TTBound bound,
+                               const Move& bestMove) {
     assert(bound != TTBound::NONE);
     assert(depth >= 0);
     ++stats_.stores;
-    TTEntry& slot = entries_[index(hash)];
 
     uint16_t key16 = verifyKey(hash);
-    bool occupied = !slot.isEmpty();
-    bool samePosition = occupied && slot.hashVerify == key16;
-    bool stale = occupied && slot.generation() != generation_;
+    TTCluster& cluster = clusters_[clusterIndex(hash)];
 
-    // Same position at deeper depth — keep the existing entry
-    if (samePosition && depth < slot.depth)
-        return;
+    // Find the best slot to replace:
+    // 1. Same position (update in place) — prefer this always
+    // 2. Empty slot
+    // 3. Oldest/shallowest entry (lowest depth - relative age score)
+    TTEntry* replace = nullptr;
+    int replaceScore = INT_MAX;
 
-    // Different position: always replace stale entries.
-    // For fresh entries, only replace if new depth >= old depth or new bound is EXACT.
-    if (occupied && !samePosition && !stale) {
-        if (depth < slot.depth && bound != TTBound::EXACT)
-            return;
+    for (int i = 0; i < 4; ++i) {
+        TTEntry& e = cluster.entries[i];
+
+        // Same position: update if new depth >= old, or new bound is EXACT
+        if (!e.isEmpty() && e.hashVerify == key16) {
+            if (depth < e.depth && bound != TTBound::EXACT)
+                return;
+            replace = &e;
+            break;
+        }
+
+        // Empty slot — ideal
+        if (e.isEmpty()) {
+            replace = &e;
+            break;
+        }
+
+        // Score: prefer replacing stale/shallow entries
+        // Lower score = better replacement candidate
+        int age = (generation_ - e.generation()) & 0x3F;
+        int score_val = static_cast<int>(e.depth) - age * 4;
+        if (score_val < replaceScore) {
+            replaceScore = score_val;
+            replace = &e;
+        }
     }
 
-    if (occupied)
+    if (!replace)
+        replace = &cluster.entries[0];
+
+    if (!replace->isEmpty())
         ++stats_.overwrites;
-    slot.hashVerify = key16;
-    slot.score = score;
-    slot.depth = static_cast<int16_t>(depth);
-    slot.genBound = static_cast<uint8_t>((generation_ << 2) | static_cast<uint8_t>(bound));
-    slot.bestMove = bestMove;
+
+    replace->hashVerify = key16;
+    replace->score = static_cast<int16_t>(score);
+    replace->depth = static_cast<int16_t>(depth);
+    replace->genBound = static_cast<uint8_t>((generation_ << 2) | static_cast<uint8_t>(bound));
+    replace->setMove(bestMove);
 }
 
 void TranspositionTable::newSearch() {
@@ -63,14 +77,18 @@ void TranspositionTable::newSearch() {
 }
 
 void TranspositionTable::clear() {
-    std::fill(entries_.begin(), entries_.end(), TTEntry{});
+    std::fill(clusters_.begin(), clusters_.end(), TTCluster{});
     generation_ = 0;
     stats_.reset();
 }
 
 size_t TranspositionTable::usedEntries() const {
-    return static_cast<size_t>(std::count_if(entries_.begin(), entries_.end(),
-                                             [](const TTEntry& e) { return !e.isEmpty(); }));
+    size_t count = 0;
+    for (const auto& cluster : clusters_)
+        for (int i = 0; i < 4; ++i)
+            if (!cluster.entries[i].isEmpty())
+                ++count;
+    return count;
 }
 
 }  // namespace cchess
