@@ -1,10 +1,25 @@
 #include "ai/Eval.h"
+#include "ai/PST.h"
 #include "core/Board.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 using namespace cchess;
 using namespace cchess::eval;
+
+// Reference: compute material+PST from scratch by iterating all pieces.
+static Score computePsqtFromScratch(const Position& pos) {
+    Score s;
+    for (int pt = 0; pt < 6; ++pt) {
+        Bitboard w = pos.pieces(static_cast<PieceType>(pt), Color::White);
+        while (w)
+            s += MATERIAL_VALUE[pt] + PST[pt][popLsb(w)];
+        Bitboard b = pos.pieces(static_cast<PieceType>(pt), Color::Black);
+        while (b)
+            s -= MATERIAL_VALUE[pt] + PST[pt][popLsb(b) ^ 56];
+    }
+    return s;
+}
 
 // Helper: get pawn bitboards from a board
 static std::pair<Bitboard, Bitboard> pawns(const Board& board) {
@@ -221,4 +236,72 @@ TEST_CASE("Eval mobility: closed rook", "[eval]") {
     Score s = mobility(board.position());
     CHECK(s.mg == 8);
     CHECK(s.eg == 8);
+}
+
+// --- incremental psqt_ ---
+
+TEST_CASE("psqt_: starting position matches reference", "[eval][psqt]") {
+    Board board;
+    Score got = board.position().psqt();
+    Score ref = computePsqtFromScratch(board.position());
+    CHECK(got == ref);
+}
+
+TEST_CASE("psqt_: custom FEN matches reference", "[eval][psqt]") {
+    // Kiwipete — lots of pieces to exercise all piece types
+    Board board("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+    Score got = board.position().psqt();
+    Score ref = computePsqtFromScratch(board.position());
+    CHECK(got == ref);
+}
+
+TEST_CASE("psqt_: stays consistent after makeMove and unmakeMove", "[eval][psqt]") {
+    Board board("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+
+    MoveList moves = board.getLegalMoves();
+    for (const Move& mv : moves) {
+        Score before = board.position().psqt();
+        UndoInfo undo = board.makeMoveUnchecked(mv);
+        // After make: incremental value must match scratch
+        Score afterMake = board.position().psqt();
+        Score afterRef = computePsqtFromScratch(board.position());
+        CHECK(afterMake == afterRef);
+        // After unmake: must return to original
+        board.unmakeMove(mv, undo);
+        Score afterUnmake = board.position().psqt();
+        CHECK(afterUnmake == before);
+    }
+}
+
+TEST_CASE("psqt_: consistent through promotion", "[eval][psqt]") {
+    // White pawn on e7 ready to promote
+    Board board("4k3/4P3/8/8/8/8/8/4K3 w - - 0 1");
+
+    MoveList moves = board.getLegalMoves();
+    for (const Move& mv : moves) {
+        UndoInfo undo = board.makeMoveUnchecked(mv);
+        Score afterMake = board.position().psqt();
+        Score afterRef = computePsqtFromScratch(board.position());
+        CHECK(afterMake == afterRef);
+        board.unmakeMove(mv, undo);
+        Score afterUnmake = board.position().psqt();
+        Score origRef = computePsqtFromScratch(board.position());
+        CHECK(afterUnmake == origRef);
+    }
+}
+
+TEST_CASE("psqt_: consistent through en passant capture", "[eval][psqt]") {
+    // White pawn on e5, black pawn on d5 having just moved d7-d5
+    Board board("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1");
+
+    MoveList moves = board.getLegalMoves();
+    for (const Move& mv : moves) {
+        Score before = board.position().psqt();
+        UndoInfo undo = board.makeMoveUnchecked(mv);
+        Score afterMake = board.position().psqt();
+        Score afterRef = computePsqtFromScratch(board.position());
+        CHECK(afterMake == afterRef);
+        board.unmakeMove(mv, undo);
+        CHECK(board.position().psqt() == before);
+    }
 }

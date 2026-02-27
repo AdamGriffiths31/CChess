@@ -5,6 +5,7 @@
 #include "Move.h"
 #include "Piece.h"
 #include "Types.h"
+#include "ai/PST.h"
 
 #include <array>
 #include <cassert>
@@ -22,7 +23,6 @@ struct UndoInfo {
 
 class Position {
 public:
-    // Constructor
     Position();
 
     // Piece access
@@ -33,9 +33,10 @@ public:
     void setPiece(Square sq, const Piece& piece);
     void clearSquare(Square sq);
 
-    // Hash
     uint64_t hash() const { return hash_; }
     void computeHash();
+
+    eval::Score psqt() const { return psqt_; }
 
     // Game state getters
     Color sideToMove() const { return sideToMove_; }
@@ -91,18 +92,22 @@ private:
         colorBB_[static_cast<int>(c)] ^= fromTo;
         board_[to] = board_[from];
         board_[from] = Piece();
+        psqt_ -= eval::pstValue(pt, c, from);
+        psqt_ += eval::pstValue(pt, c, to);
     }
 
     void removePieceBB(Square sq, PieceType pt, Color c) {
         pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
         colorBB_[static_cast<int>(c)] ^= squareBB(sq);
         board_[sq] = Piece();
+        psqt_ -= eval::pstValue(pt, c, sq);
     }
 
     void putPieceBB(Square sq, PieceType pt, Color c) {
         pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
         colorBB_[static_cast<int>(c)] ^= squareBB(sq);
         board_[sq] = Piece(pt, c);
+        psqt_ += eval::pstValue(pt, c, sq);
     }
 
     void updateOccupied() { occupied_ = colorBB_[0] | colorBB_[1]; }
@@ -115,6 +120,7 @@ private:
     Bitboard occupied_;
     std::array<Square, 2> kingSquare_;  // Indexed by Color
 
+    eval::Score psqt_;
     Color sideToMove_;
     CastlingRights castlingRights_;
     Square enPassantSquare_;

@@ -2,6 +2,7 @@
 
 #include "Square.h"
 #include "Zobrist.h"
+#include "ai/PST.h"
 
 #include <algorithm>
 #include <cassert>
@@ -66,16 +67,19 @@ void Position::clear() {
     colorBB_.fill(BB_EMPTY);
     occupied_ = BB_EMPTY;
     kingSquare_ = {SQUARE_NONE, SQUARE_NONE};
+    psqt_ = eval::Score{};
     hash_ = 0;
 }
 
 void Position::computeHash() {
     hash_ = 0;
+    psqt_ = eval::Score{};
     for (Square sq = 0; sq < 64; ++sq) {
         const Piece& p = board_[sq];
         if (!p.isEmpty()) {
             hash_ ^=
                 zobrist::pieceKeys[static_cast<int>(p.color())][static_cast<int>(p.type())][sq];
+            psqt_ += eval::pstValue(p.type(), p.color(), sq);
         }
     }
     if (sideToMove_ == Color::Black)

@@ -1,6 +1,7 @@
 #ifndef CCHESS_EVAL_H
 #define CCHESS_EVAL_H
 
+#include "PST.h"
 #include "core/Bitboard.h"
 #include "core/Position.h"
 
@@ -10,30 +11,6 @@ namespace eval {
 constexpr int SCORE_MATE = 100000;
 constexpr int SCORE_INFINITY = 200000;
 constexpr int SCORE_DRAW = 0;
-
-// MG/EG score pair for tapered evaluation
-struct Score {
-    int mg = 0, eg = 0;
-    constexpr Score operator+(Score s) const { return {mg + s.mg, eg + s.eg}; }
-    constexpr Score operator-(Score s) const { return {mg - s.mg, eg - s.eg}; }
-    constexpr Score& operator+=(Score s) {
-        mg += s.mg;
-        eg += s.eg;
-        return *this;
-    }
-    constexpr Score& operator-=(Score s) {
-        mg -= s.mg;
-        eg -= s.eg;
-        return *this;
-    }
-    constexpr Score operator-() const { return {-mg, -eg}; }
-};
-constexpr Score operator*(int n, Score s) {
-    return {n * s.mg, n * s.eg};
-}
-constexpr Score S(int mg, int eg) {
-    return {mg, eg};
-}
 
 // Attack map built once per evaluate() call and shared across eval terms.
 struct EvalState {
