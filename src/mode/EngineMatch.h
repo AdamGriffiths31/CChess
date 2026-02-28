@@ -49,23 +49,36 @@ struct GameSummary {
     }
 };
 
+// Result of a single game
+struct GameResult {
+    std::string resultStr;
+    int score = 0;         // 1 = CChess win, 0 = draw, -1 = opponent win
+    bool aborted = false;  // true if game ended due to engine error (not counted in series)
+    Color cchessColor = Color::White;
+    int gameNumber = 0;
+    GameSummary summary;
+    TTStats ttStats{};
+    double ttOccupancy = 0.0;
+};
+
 class EngineMatch {
 public:
-    // timeMs: base time in milliseconds, incMs: increment per move in milliseconds
+    // timeMs: base time per side in ms, incMs: increment per move in ms
     explicit EngineMatch(const Opponent& opponent, int timeMs = 180000, int incMs = 2000);
 
-    void play();
+    void playSeries();
 
 private:
+    GameResult playGame(Color cchessColor, int gameNumber);
+
     int allocateTime(int remainingMs, int incMs) const;
-    void writeGameReport(const std::string& result, const TTStats& ttStats,
-                         double ttOccupancy) const;
+    void writeGameReport(const GameResult& result, const std::vector<MoveRecord>& log) const;
+    void writePgn(const GameResult& result, const std::vector<MoveRecord>& log) const;
+    void appendSeriesRecord(const std::vector<GameResult>& results) const;
 
     Opponent opponent_;
     int timeMs_;
     int incMs_;
-    Board board_;
-    std::vector<MoveRecord> moveLog_;
 };
 
 }  // namespace cchess

@@ -149,6 +149,9 @@ void Uci::handleGo(std::istringstream& args) {
         if (remaining > 0) {
             int allocated = remaining / 30 + increment;
             allocated = std::min(allocated, remaining / 3);
+            // Never spend less than increment (minus a small overhead margin)
+            if (increment > 0)
+                allocated = std::max(allocated, increment - 50);
             config.searchTime = std::chrono::milliseconds(allocated);
         }
     }

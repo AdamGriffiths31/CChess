@@ -42,6 +42,9 @@ constexpr Score MATERIAL_VALUE[] = {
     S(0, 0),       // King
 };
 
+// MG-only material values for delta pruning (indexed by PieceType)
+constexpr int PIECE_VALUE_MG[] = {82, 337, 365, 477, 1025, 0};
+
 // clang-format off
 constexpr Score PAWN_PST[64] = {
     S(  0,   0), S(  0,   0), S(  0,   0), S(  0,   0), S(  0,   0), S(  0,   0), S(  0,   0), S(  0,   0),

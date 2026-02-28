@@ -153,7 +153,7 @@ inline int scoreFromTT(int score, int ply) {
 
 class TranspositionTable {
 public:
-    explicit TranspositionTable(size_t sizeMB = 128);
+    explicit TranspositionTable(size_t sizeMB = 512);
 
     inline bool probe(uint64_t hash, TTEntry& out) {
         ++stats_.probes;

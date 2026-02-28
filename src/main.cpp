@@ -19,7 +19,7 @@
 void showMenu() {
     std::cout << "\n========== CChess ==========\n";
     std::cout << "1. Player vs Player\n";
-    std::cout << "2. Play vs Engine\n";
+    std::cout << "2. Engine vs Engine\n";
     std::cout << "3. Perft Test\n";
     std::cout << "4. STS Benchmark\n";
     std::cout << "5. Exit\n";
@@ -38,7 +38,7 @@ int getMenuChoice() {
     return choice;
 }
 
-void playVsEngine() {
+void runEngineMatch() {
     std::vector<cchess::Opponent> opponents;
     try {
         opponents = cchess::loadOpponents("engines/opponents.json");
@@ -53,9 +53,8 @@ void playVsEngine() {
     }
 
     std::cout << "\n--- Select Opponent ---\n";
-    for (size_t i = 0; i < opponents.size(); ++i) {
+    for (size_t i = 0; i < opponents.size(); ++i)
         std::cout << (i + 1) << ". " << opponents[i].name << "\n";
-    }
     std::cout << (opponents.size() + 1) << ". Back\n";
     std::cout << "Choice: ";
 
@@ -72,13 +71,12 @@ void playVsEngine() {
         return;
 
     cchess::EngineMatch match(opponents[static_cast<size_t>(pick - 1)]);
-    match.play();
+    match.playSeries();
 }
 
 int main(int argc, char* argv[]) {
     cchess::zobrist::init();
 
-    // UCI mode via command-line flag
     if (argc > 1 && std::strcmp(argv[1], "--uci") == 0) {
         cchess::Uci uci;
         uci.loop();
@@ -97,7 +95,7 @@ int main(int argc, char* argv[]) {
                     break;
                 }
                 case 2:
-                    playVsEngine();
+                    runEngineMatch();
                     break;
                 case 3:
                     cchess::PerftRunner::run();

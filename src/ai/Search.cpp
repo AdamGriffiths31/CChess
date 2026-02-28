@@ -457,6 +457,20 @@ int Search::quiescence(int alpha, int beta, int ply) {
     int origAlpha = alpha;
     int bestScore = standPat;
 
+    // Node-level bail: if even the best possible capture can't raise stand_pat to alpha,
+    // no capture at this node can help. Must use alpha before stand-pat update.
+    // Raise the ceiling when a promoting pawn is on board since promotion adds a
+    // pawn→queen swing on top of any capture.
+    constexpr int DELTA_MAX_GAIN = eval::PIECE_VALUE_MG[static_cast<int>(PieceType::Queen)];
+    constexpr int DELTA_PROMO_BONUS = eval::PIECE_VALUE_MG[static_cast<int>(PieceType::Queen)] -
+                                      eval::PIECE_VALUE_MG[static_cast<int>(PieceType::Pawn)];
+    constexpr int DELTA_MARGIN = 350;
+    bool hasPromotingPawn =
+        (board_.position().pieces(PieceType::Pawn, Color::White) & RANK_BB[RANK_7]) ||
+        (board_.position().pieces(PieceType::Pawn, Color::Black) & RANK_BB[RANK_2]);
+    if (standPat < alpha - DELTA_MAX_GAIN - (hasPromotingPawn ? DELTA_PROMO_BONUS : 0))
+        return standPat;
+
     if (standPat > alpha)
         alpha = standPat;
     Move bestMoveInNode;
@@ -465,6 +479,14 @@ int Search::quiescence(int alpha, int beta, int ply) {
     MoveOrder::sort(captures, board_.position());
 
     for (size_t i = 0; i < captures.size(); ++i) {
+        // Per-move delta: skip captures whose material gain + margin can't reach alpha.
+        // Exempt promotions (large swing) and en passant (target square is empty).
+        if (!captures[i].isPromotion() && !captures[i].isEnPassant()) {
+            PieceType captured = board_.position().pieceAt(captures[i].to()).type();
+            if (standPat + eval::PIECE_VALUE_MG[static_cast<int>(captured)] + DELTA_MARGIN < alpha)
+                continue;
+        }
+
         UndoInfo undo = board_.makeMoveUnchecked(captures[i]);
         ++nodes_;
         tt_.prefetch(board_.position().hash());  // hide TT latency
