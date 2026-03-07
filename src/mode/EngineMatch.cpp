@@ -4,6 +4,7 @@
 #include "ai/Search.h"
 #include "ai/SearchConfig.h"
 #include "ai/TranspositionTable.h"
+#include "book/PolyglotBook.h"
 #include "core/Move.h"
 #include "core/Notation.h"
 #include "display/BoardRenderer.h"
@@ -85,8 +86,12 @@ std::string timestamp(const char* fmt) {
 
 // ---------------------------------------------------------------------------
 
-EngineMatch::EngineMatch(const Opponent& opponent, int timeMs, int incMs)
-    : opponent_(opponent), timeMs_(timeMs), incMs_(incMs) {}
+EngineMatch::EngineMatch(const Opponent& opponent, int timeMs, int incMs,
+                         const std::string& bookPath)
+    : opponent_(opponent), timeMs_(timeMs), incMs_(incMs) {
+    if (!bookPath.empty() && !book_.load(bookPath))
+        std::cerr << "Warning: could not load book file: " << bookPath << "\n";
+}
 
 int EngineMatch::allocateTime(int remainingMs, int incMs) const {
     int allocated = remainingMs / 30 + incMs;
@@ -168,55 +173,99 @@ GameResult EngineMatch::playGame(Color cchessColor, int gameNumber) {
         std::string moveUci;
 
         if (isCChessTurn) {
-            int remaining = (cchessColor == Color::White) ? wtime : btime;
-            SearchConfig config;
-            config.searchTime = std::chrono::milliseconds(allocateTime(remaining, incMs_));
+            // Opening book probe — only within the first kBookDepth moves
+            bool usedBook = false;
+            if (book_.isLoaded()) {
+                int halfMoves =
+                    (board.fullmoveNumber() - 1) * 2 + (board.sideToMove() == Color::Black ? 1 : 0);
+                if (halfMoves < kBookDepth * 2) {
+                    uint64_t pgKey = book::computePolyglotKey(board.position());
+                    if (auto pgMove = book_.probe(pgKey)) {
+                        if (auto legal = book::decodePolyglotMove(*pgMove, board)) {
+                            std::string san = moveToSan(board, *legal);
+                            moveUci = legal->toAlgebraic();
+                            board.makeMoveUnchecked(*legal);
 
-            SearchInfo lastInfo{};
-            Search search(board, config, tt, [&lastInfo](const SearchInfo& i) { lastInfo = i; });
-            Move best = search.findBestMove();
-            uint64_t totalNodes = search.totalNodes();
+                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - moveStart)
+                                               .count();
 
-            std::string san = moveToSan(board, best);
-            moveUci = best.toAlgebraic();
-            board.makeMoveUnchecked(best);
+                            int& ourTime = (cchessColor == Color::White) ? wtime : btime;
+                            ourTime -= static_cast<int>(elapsed);
+                            ourTime += incMs_;
 
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::steady_clock::now() - moveStart)
-                               .count();
+                            MoveRecord rec;
+                            rec.moveNumber = moveNumber;
+                            rec.san = san;
+                            rec.uci = moveUci;
+                            rec.side = cchessColor;
+                            rec.timeMs = static_cast<int>(elapsed);
+                            rec.hasCChessInfo = false;  // no search info for book moves
+                            log.push_back(std::move(rec));
 
-            int& ourTime = (cchessColor == Color::White) ? wtime : btime;
-            ourTime -= static_cast<int>(elapsed);
-            ourTime += incMs_;
+                            std::cout << "\nCChess: " << san << " (" << moveUci << ") [book]\n";
+                            usedBook = true;
+                        }
+                        // illegal book entry → fall through to search
+                    }
+                }
+            }
 
-            int timeMs = std::max(static_cast<int>(elapsed), 1);
-            uint64_t nps = totalNodes * 1000 / static_cast<uint64_t>(timeMs);
+            if (!usedBook) {
+                int remaining = (cchessColor == Color::White) ? wtime : btime;
+                SearchConfig config;
+                config.searchTime = std::chrono::milliseconds(allocateTime(remaining, incMs_));
 
-            MoveRecord rec;
-            rec.moveNumber = moveNumber;
-            rec.san = san;
-            rec.uci = moveUci;
-            rec.side = cchessColor;
-            rec.depthReached = lastInfo.depth;
-            rec.score = lastInfo.score;
-            rec.nodes = totalNodes;
-            rec.timeMs = static_cast<int>(elapsed);
-            rec.nps = nps;
-            rec.pv = lastInfo.pv;
-            rec.hasCChessInfo = true;
-            log.push_back(std::move(rec));
+                SearchInfo lastInfo{};
+                Search search(board, config, tt,
+                              [&lastInfo](const SearchInfo& i) { lastInfo = i; });
+                Move best = search.findBestMove();
+                uint64_t totalNodes = search.totalNodes();
 
-            std::cout << "\nCChess: " << san << " (" << moveUci << ")"
-                      << " | depth " << lastInfo.depth << " | score " << formatScore(lastInfo.score)
-                      << " | " << totalNodes << " nodes"
-                      << " | " << elapsed << "ms"
-                      << " | " << compactNumber(nps) << " NPS\n";
+                std::string san = moveToSan(board, best);
+                moveUci = best.toAlgebraic();
+                board.makeMoveUnchecked(best);
 
-            if (ourTime <= 0) {
-                std::cout << "\n*** CChess lost on time! ***\n";
-                resultStr = opponent_.name + " (" + oppSide + ") wins on time";
-                score = -1;
-                break;
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now() - moveStart)
+                                   .count();
+
+                int& ourTime = (cchessColor == Color::White) ? wtime : btime;
+                ourTime -= static_cast<int>(elapsed);
+                ourTime += incMs_;
+
+                int timeMs = std::max(static_cast<int>(elapsed), 1);
+                uint64_t nps = totalNodes * 1000 / static_cast<uint64_t>(timeMs);
+
+                MoveRecord rec;
+                rec.moveNumber = moveNumber;
+                rec.san = san;
+                rec.uci = moveUci;
+                rec.side = cchessColor;
+                rec.depthReached = lastInfo.depth;
+                rec.score = lastInfo.score;
+                rec.nodes = totalNodes;
+                rec.timeMs = static_cast<int>(elapsed);
+                rec.nps = nps;
+                rec.pv = lastInfo.pv;
+                rec.hasCChessInfo = true;
+                log.push_back(std::move(rec));
+
+                std::cout << "\nCChess: " << san << " (" << moveUci << ")"
+                          << " | depth " << lastInfo.depth << " | score "
+                          << formatScore(lastInfo.score) << " | " << totalNodes << " nodes"
+                          << " | " << elapsed << "ms"
+                          << " | " << compactNumber(nps) << " NPS\n";
+            }  // if (!usedBook)
+
+            {
+                const int& ourTime = (cchessColor == Color::White) ? wtime : btime;
+                if (ourTime <= 0) {
+                    std::cout << "\n*** CChess lost on time! ***\n";
+                    resultStr = opponent_.name + " (" + oppSide + ") wins on time";
+                    score = -1;
+                    break;
+                }
             }
         } else {
             // Opponent's turn

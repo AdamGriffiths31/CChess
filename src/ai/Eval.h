@@ -19,6 +19,11 @@ struct EvalState {
     Bitboard pawnAtk[2] = {};
 };
 
+constexpr int TOTAL_PHASE = 24;
+
+// Returns the game phase (0=endgame .. TOTAL_PHASE=midgame) based on remaining material.
+int gamePhase(const Position& pos);
+
 // Returns score relative to side to move (positive = good for side to move)
 int evaluate(const Position& pos);
 

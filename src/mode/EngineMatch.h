@@ -2,6 +2,7 @@
 #define CCHESS_ENGINE_MATCH_H
 
 #include "ai/TranspositionTable.h"
+#include "book/PolyglotBook.h"
 #include "core/Board.h"
 #include "core/Move.h"
 #include "core/Types.h"
@@ -64,7 +65,9 @@ struct GameResult {
 class EngineMatch {
 public:
     // timeMs: base time per side in ms, incMs: increment per move in ms
-    explicit EngineMatch(const Opponent& opponent, int timeMs = 180000, int incMs = 2000);
+    // bookPath: optional Polyglot .bin book (empty string = no book)
+    explicit EngineMatch(const Opponent& opponent, int timeMs = 180000, int incMs = 2000,
+                         const std::string& bookPath = "");
 
     void playSeries();
 
@@ -79,6 +82,8 @@ private:
     Opponent opponent_;
     int timeMs_;
     int incMs_;
+    book::PolyglotBook book_;
+    static constexpr int kBookDepth = 10;  // stop consulting book after this many moves
 };
 
 }  // namespace cchess

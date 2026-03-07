@@ -70,7 +70,8 @@ void runEngineMatch() {
     if (pick == maxPick)
         return;
 
-    cchess::EngineMatch match(opponents[static_cast<size_t>(pick - 1)]);
+    cchess::EngineMatch match(opponents[static_cast<size_t>(pick - 1)], 180000, 2000,
+                              "engines/book.bin");
     match.playSeries();
 }
 

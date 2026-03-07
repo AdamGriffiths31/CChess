@@ -32,6 +32,9 @@ add_library(cchess_core STATIC
     mode/OpponentList.cpp
     mode/EngineMatch.cpp
 
+    # Book
+    book/PolyglotBook.cpp
+
     # UCI
     uci/Uci.cpp
     uci/UciEngine.cpp

@@ -10,7 +10,6 @@ namespace eval {
 
 // Phase weights for non-pawn pieces (total = 24)
 constexpr int PHASE_WEIGHT[] = {0, 1, 1, 2, 4, 0};
-constexpr int TOTAL_PHASE = 24;
 
 // Adjacent file masks for pawn structure evaluation
 constexpr Bitboard ADJ_FILES[8] = {
@@ -327,8 +326,8 @@ int evaluate(const Position& pos) {
     Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
 
     EvalState state;
-    Score score = pos.psqt() + bishopPair(pos) + pawnStructure(wp, bp) +
-                  passedPawns(wp, bp) + rookOpenFiles(pos, wp, bp) + pieceEval(pos, wp, bp, state) +
+    Score score = pos.psqt() + bishopPair(pos) + pawnStructure(wp, bp) + passedPawns(wp, bp) +
+                  rookOpenFiles(pos, wp, bp) + pieceEval(pos, wp, bp, state) +
                   kingSafety(pos, wp, bp, state);
 
     // Taper: interpolate between MG and EG based on phase
