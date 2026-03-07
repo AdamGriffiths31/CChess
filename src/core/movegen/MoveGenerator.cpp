@@ -367,9 +367,28 @@ bool MoveGenerator::isStalemate(const Position& pos) {
     return !isInCheck(pos, us) && generateLegalMoves(pos).empty();
 }
 
+bool MoveGenerator::isInsufficientMaterial(const Position& pos) {
+    // Any pawn, rook, or queen means mate is theoretically possible
+    if (pos.pieces(PieceType::Pawn) | pos.pieces(PieceType::Rook) | pos.pieces(PieceType::Queen))
+        return false;
+
+    // At least one side must be bare king
+    bool whiteBareKing = popCount(pos.pieces(Color::White)) == 1;
+    bool blackBareKing = popCount(pos.pieces(Color::Black)) == 1;
+    if (!whiteBareKing && !blackBareKing)
+        return false;
+
+    // Remaining minor pieces: KvK, KBvK, KNvK, KNNvK
+    Bitboard minors = pos.pieces(PieceType::Knight) | pos.pieces(PieceType::Bishop);
+    return popCount(minors) <= 1 ||
+           (!pos.pieces(PieceType::Bishop) && popCount(pos.pieces(PieceType::Knight)) <= 2);
+}
+
 bool MoveGenerator::isDraw(const Position& pos) {
     // 50-move rule (halfmove clock >= 100 means 50 full moves)
-    return pos.halfmoveClock() >= 100;
+    if (pos.halfmoveClock() >= 100)
+        return true;
+    return isInsufficientMaterial(pos);
 }
 
 }  // namespace cchess

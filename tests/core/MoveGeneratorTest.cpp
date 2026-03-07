@@ -58,7 +58,8 @@ TEST_CASE("MoveGenerator 50-move rule", "[movegen]") {
     }
 
     SECTION("50 moves not reached") {
-        Position pos = parser.parse("4k3/8/8/8/8/8/8/4K3 w - - 99 1");
+        // Use a position with sufficient material so only the 50-move rule is tested
+        Position pos = parser.parse("4k3/8/8/8/8/8/8/4K2R w - - 99 1");
 
         REQUIRE_FALSE(MoveGenerator::isDraw(pos));
     }

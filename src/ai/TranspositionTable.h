@@ -158,9 +158,9 @@ public:
     inline bool probe(uint64_t hash, TTEntry& out) {
         ++stats_.probes;
         uint16_t key16 = verifyKey(hash);
-        TTCluster& cluster = clusters_[clusterIndex(hash)];
+        const TTCluster& cluster = clusters_[clusterIndex(hash)];
         for (int i = 0; i < 4; ++i) {
-            TTEntry& e = cluster.entries[i];
+            const TTEntry& e = cluster.entries[i];
             if (e.hashVerify == key16 && !e.isEmpty()) {
                 out = e;
                 ++stats_.hits;

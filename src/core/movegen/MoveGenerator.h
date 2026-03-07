@@ -31,7 +31,8 @@ public:
     // Game state queries
     static bool isCheckmate(const Position& pos);
     static bool isStalemate(const Position& pos);
-    static bool isDraw(const Position& pos);  // 50-move rule
+    static bool isInsufficientMaterial(const Position& pos);
+    static bool isDraw(const Position& pos);  // 50-move rule or insufficient material
 
 private:
     // Per-piece move generators (pseudo-legal)
