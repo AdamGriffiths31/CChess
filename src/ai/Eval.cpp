@@ -50,10 +50,13 @@ constexpr Score SHELTER_STORM_PENALTY = S(-10, 0);
 constexpr Score KING_SEMI_OPEN_FILE_PENALTY = S(-20, 0);
 // Open file near king (no pawns at all): shelter gap only, no storm
 constexpr Score KING_OPEN_FILE_PENALTY = S(-10, 0);
-// Attacker weights for the king attack zone (indexed by PieceType: Pawn=0..King=5)
-// Knights are weighted highest — they leap past defenses and their checks are hardest to see.
-// Queen is low because it will also be counted via safe checks when that is added.
-constexpr int KING_ATTACKER_WEIGHT[] = {0, 7, 5, 4, 4, 0};
+// Attacker weights for the king attack zone (indexed by PieceType: Pawn=0..King=5).
+// These are per-piece weights, not per-attacked-square — each distinct piece type
+// that attacks any square in the king zone contributes its weight once.
+// Queen is weighted highest; knight second (leaps past defenses).
+// If fewer than 2 distinct piece types are attacking the zone, danger is zeroed —
+// a single piece alone cannot force a mating attack on a castled king.
+constexpr int KING_ATTACKER_WEIGHT[] = {0, 40, 30, 25, 50, 0};
 constexpr int KING_DANGER_DIVIDER = 8;  // penalty = danger² / KING_DANGER_DIVIDER (mg only)
 
 int gamePhase(const Position& pos) {
@@ -297,15 +300,24 @@ Score kingSafety(const Position& pos, Bitboard wp, Bitboard bp, const EvalState&
             shelterBonus * SHELTER_PAWN_BONUS + stormPenalty * SHELTER_STORM_PENALTY;
 
         // ---- 3. Attacker danger in king zone ----
+        // Count distinct piece types attacking the zone (one weight per piece type,
+        // regardless of how many squares of the zone it covers). This models the
+        // combinatorial danger of a coordinated mating attack: two pieces together
+        // are far more dangerous than one piece twice as active.
         int danger = 0;
-        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Knight)] *
-                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Knight)] & zone);
-        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Bishop)] *
-                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Bishop)] & zone);
-        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Rook)] *
-                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Rook)] & zone);
-        danger += KING_ATTACKER_WEIGHT[static_cast<int>(PieceType::Queen)] *
-                  popCount(state.attackedBy[them][static_cast<int>(PieceType::Queen)] & zone);
+        int attackersCount = 0;
+        for (int pt = static_cast<int>(PieceType::Knight); pt <= static_cast<int>(PieceType::Queen);
+             ++pt) {
+            if (state.attackedBy[them][pt] & zone) {
+                danger += KING_ATTACKER_WEIGHT[pt];
+                ++attackersCount;
+            }
+        }
+
+        // A single piece alone cannot force mate on a castled king — zero out danger
+        // unless at least 2 distinct piece types are bearing on the king zone.
+        if (attackersCount < 2)
+            danger = 0;
 
         // Quadratic penalty, MG only.
         int dangerPenalty = (danger * danger) / KING_DANGER_DIVIDER;
