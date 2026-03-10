@@ -2,6 +2,7 @@
 #define CCHESS_EVAL_H
 
 #include "PST.h"
+#include "PawnTable.h"
 #include "core/Bitboard.h"
 #include "core/Position.h"
 
@@ -26,6 +27,13 @@ int gamePhase(const Position& pos);
 
 // Returns score relative to side to move (positive = good for side to move)
 int evaluate(const Position& pos);
+
+// Overload that probes the pawn hash table, populating on miss, then evaluates.
+int evaluate(const Position& pos, PawnTable& pt);
+
+// Overload that accepts pre-computed pawn scores (e.g. from a pawn hash table).
+// Skips calling pawnStructure() and passedPawns() internally.
+int evaluate(const Position& pos, Score pawnScore, Score passedScore);
 
 // Individual eval terms (white-relative, return MG/EG score pair)
 Score materialAndPST(const Position& pos);

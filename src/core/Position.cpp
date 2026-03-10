@@ -69,10 +69,12 @@ void Position::clear() {
     kingSquare_ = {SQUARE_NONE, SQUARE_NONE};
     psqt_ = eval::Score{};
     hash_ = 0;
+    pawnHash_ = 0;
 }
 
 void Position::computeHash() {
     hash_ = 0;
+    pawnHash_ = 0;
     psqt_ = eval::Score{};
     for (Square sq = 0; sq < 64; ++sq) {
         const Piece& p = board_[sq];
@@ -80,6 +82,8 @@ void Position::computeHash() {
             hash_ ^=
                 zobrist::pieceKeys[static_cast<int>(p.color())][static_cast<int>(p.type())][sq];
             psqt_ += eval::pstValue(p.type(), p.color(), sq);
+            if (p.type() == PieceType::Pawn)
+                pawnHash_ ^= zobrist::pawnKeys[static_cast<int>(p.color())][sq];
         }
     }
     if (sideToMove_ == Color::Black)
@@ -110,6 +114,7 @@ UndoInfo Position::makeMove(const Move& move) {
     const int ci_them = static_cast<int>(them);
 
     undo.capturedPiece = board_[to];
+    undo.movedPieceType = pt;
 
     // XOR out old castling and en passant keys
     hash_ ^= zobrist::castlingKeys[castlingRights_];
@@ -164,8 +169,6 @@ UndoInfo Position::makeMove(const Move& move) {
             hash_ ^= zobrist::pieceKeys[ci][static_cast<int>(pt)][to];
         }
     }
-
-    updateOccupied();
 
     // Update halfmove clock
     if (pt == PieceType::Pawn || move.isCapture()) {
@@ -241,7 +244,7 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
             removePieceBB(to, move.promotion(), us);
             putPieceBB(from, PieceType::Pawn, us);
         } else {
-            PieceType pt = board_[to].type();
+            PieceType pt = undo.movedPieceType;
             movePieceBB(to, from, pt, us);
             if (pt == PieceType::King)
                 kingSquare_[static_cast<int>(us)] = from;
@@ -251,8 +254,6 @@ void Position::unmakeMove(const Move& move, const UndoInfo& undo) {
             putPieceBB(to, undo.capturedPiece.type(), them);
         }
     }
-
-    updateOccupied();
 
     castlingRights_ = undo.castlingRights;
     enPassantSquare_ = undo.enPassantSquare;

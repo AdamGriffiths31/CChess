@@ -211,7 +211,8 @@ void StsRunner::run() {
 
             Board board(fen);
             TranspositionTable tt;
-            Search search(board, config, tt);
+            eval::PawnTable pawnTable;
+            Search search(board, config, tt, pawnTable);
             Move bestMove = search.findBestMove();
 
             if (bestMove.isNull()) {

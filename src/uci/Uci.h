@@ -1,6 +1,7 @@
 #ifndef CCHESS_UCI_H
 #define CCHESS_UCI_H
 
+#include "ai/Eval.h"
 #include "ai/TranspositionTable.h"
 #include "book/PolyglotBook.h"
 #include "core/Board.h"
@@ -33,6 +34,7 @@ private:
     Board board_;
     std::vector<uint64_t> gameHistory_;
     TranspositionTable tt_;
+    eval::PawnTable pawnTable_;
     std::atomic<bool> stopFlag_{false};
     std::thread searchThread_;
 

@@ -1,6 +1,7 @@
 #ifndef CCHESS_SEARCH_H
 #define CCHESS_SEARCH_H
 
+#include "ai/PawnTable.h"
 #include "ai/SearchConfig.h"
 #include "ai/TranspositionTable.h"
 #include "core/Board.h"
@@ -30,7 +31,8 @@ using InfoCallback = std::function<void(const SearchInfo&)>;
 class Search {
 public:
     Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
-           InfoCallback infoCallback = nullptr, std::vector<uint64_t> gameHistory = {});
+           eval::PawnTable& pt, InfoCallback infoCallback = nullptr,
+           std::vector<uint64_t> gameHistory = {});
 
     Move findBestMove();
 
@@ -47,6 +49,7 @@ private:
     Board board_;
     SearchConfig config_;
     TranspositionTable& tt_;
+    eval::PawnTable& pawnTable_;
     InfoCallback infoCallback_;
 
     // Repetition detection: game history before search + current search path

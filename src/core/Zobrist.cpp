@@ -7,6 +7,7 @@ uint64_t pieceKeys[2][6][64];
 uint64_t sideKey;
 uint64_t castlingKeys[16];
 uint64_t enPassantKeys[8];
+uint64_t pawnKeys[2][64];
 
 static uint64_t xorshift64(uint64_t& state) {
     state ^= state << 13;
@@ -30,6 +31,10 @@ void init() {
 
     for (int f = 0; f < 8; ++f)
         enPassantKeys[f] = xorshift64(seed);
+
+    for (int c = 0; c < 2; ++c)
+        for (int sq = 0; sq < 64; ++sq)
+            pawnKeys[c][sq] = xorshift64(seed);
 }
 
 }  // namespace zobrist

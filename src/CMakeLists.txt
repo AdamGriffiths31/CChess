@@ -29,6 +29,7 @@ add_library(cchess_core STATIC
     mode/PlayerVsPlayer.cpp
     mode/PerftRunner.cpp
     mode/StsRunner.cpp
+    mode/ProfileBench.cpp
     mode/OpponentList.cpp
     mode/EngineMatch.cpp
 

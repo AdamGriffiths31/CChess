@@ -1,4 +1,4 @@
-# Use local Catch2 (disable warnings for third-party code)
+# Suppress warnings for third-party Catch2 code
 set(CMAKE_CXX_FLAGS_BACKUP "${CMAKE_CXX_FLAGS}")
 if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /w")
@@ -6,7 +6,19 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 endif()
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/catch2 ${CMAKE_BINARY_DIR}/catch2)
+# Use vendored Catch2 if present, otherwise fetch it
+if(EXISTS "${CMAKE_SOURCE_DIR}/vendor/catch2/CMakeLists.txt")
+    add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/catch2 ${CMAKE_BINARY_DIR}/catch2)
+else()
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.7.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+endif()
 
 # Restore original warning flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
@@ -39,6 +51,8 @@ target_link_libraries(cchess_tests PRIVATE
 # Add tests to CTest
 include(CTest)
 add_test(NAME cchess_tests COMMAND cchess_tests)
-set_tests_properties(cchess_tests PROPERTIES
-    ENVIRONMENT "PATH=C:/msys64/ucrt64/bin;$ENV{PATH}"
-)
+if(WIN32)
+    set_tests_properties(cchess_tests PROPERTIES
+        ENVIRONMENT "PATH=C:/msys64/ucrt64/bin;$ENV{PATH}"
+    )
+endif()

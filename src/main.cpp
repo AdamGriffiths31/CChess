@@ -6,6 +6,7 @@
 #include "mode/OpponentList.h"
 #include "mode/PerftRunner.h"
 #include "mode/PlayerVsPlayer.h"
+#include "mode/ProfileBench.h"
 #include "mode/StsRunner.h"
 #include "uci/Uci.h"
 #include "utils/Error.h"
@@ -81,6 +82,17 @@ int main(int argc, char* argv[]) {
     if (argc > 1 && std::strcmp(argv[1], "--uci") == 0) {
         cchess::Uci uci;
         uci.loop();
+        return 0;
+    }
+
+    if (argc > 1 && std::strcmp(argv[1], "--bench") == 0) {
+        int timeMs = 30000;
+        if (argc > 2) {
+            try {
+                timeMs = std::stoi(argv[2]);
+            } catch (...) {}
+        }
+        cchess::ProfileBench::run(timeMs);
         return 0;
     }
 

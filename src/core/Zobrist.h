@@ -13,6 +13,7 @@ extern uint64_t pieceKeys[2][6][64];  // [color][pieceType][square]
 extern uint64_t sideKey;              // XORed when side to move is Black
 extern uint64_t castlingKeys[16];     // indexed by CastlingRights (0-15)
 extern uint64_t enPassantKeys[8];     // indexed by file (0-7)
+extern uint64_t pawnKeys[2][64];      // [color][square] — for incremental pawn hash
 
 void init();
 

@@ -221,7 +221,7 @@ void Uci::handleGo(std::istringstream& args) {
     std::vector<uint64_t> historyCopy = gameHistory_;
     searchThread_ = std::thread(
         [this, config, infoCallback, boardCopy, historyCopy = std::move(historyCopy)]() mutable {
-            Search search(boardCopy, config, tt_, infoCallback, std::move(historyCopy));
+            Search search(boardCopy, config, tt_, pawnTable_, infoCallback, std::move(historyCopy));
             Move best = search.findBestMove();
             std::cout << "bestmove " << best.toAlgebraic() << "\n";
         });

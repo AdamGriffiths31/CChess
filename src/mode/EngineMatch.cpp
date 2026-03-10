@@ -128,6 +128,7 @@ GameResult EngineMatch::playGame(Color cchessColor, int gameNumber) {
     engine.newGame();
 
     TranspositionTable tt;
+    eval::PawnTable pawnTable;
     std::vector<std::string> moveHistory;
 
     int wtime = timeMs_;
@@ -217,7 +218,7 @@ GameResult EngineMatch::playGame(Color cchessColor, int gameNumber) {
                 config.searchTime = std::chrono::milliseconds(allocateTime(remaining, incMs_));
 
                 SearchInfo lastInfo{};
-                Search search(board, config, tt,
+                Search search(board, config, tt, pawnTable,
                               [&lastInfo](const SearchInfo& i) { lastInfo = i; });
                 Move best = search.findBestMove();
                 uint64_t totalNodes = search.totalNodes();

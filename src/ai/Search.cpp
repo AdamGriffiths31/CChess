@@ -37,10 +37,11 @@ void Search::initLMR() {
 // ============================================================================
 
 Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
-               InfoCallback infoCallback, std::vector<uint64_t> gameHistory)
+               eval::PawnTable& pt, InfoCallback infoCallback, std::vector<uint64_t> gameHistory)
     : board_(board),
       config_(config),
       tt_(tt),
+      pawnTable_(pt),
       infoCallback_(std::move(infoCallback)),
       gameHistory_(std::move(gameHistory)),
       stopped_(false),
@@ -448,7 +449,7 @@ int Search::quiescence(int alpha, int beta, int ply) {
         }
     }
 
-    int standPat = eval::evaluate(board_.position());
+    int standPat = eval::evaluate(board_.position(), pawnTable_);
 
     // Stand-pat cutoff: side to move can choose not to capture
     if (standPat >= beta)

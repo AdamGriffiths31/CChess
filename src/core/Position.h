@@ -5,6 +5,7 @@
 #include "Move.h"
 #include "Piece.h"
 #include "Types.h"
+#include "Zobrist.h"
 #include "ai/PST.h"
 
 #include <array>
@@ -19,6 +20,7 @@ struct UndoInfo {
     Square enPassantSquare;
     int halfmoveClock;
     uint64_t hash;
+    PieceType movedPieceType = PieceType::None;  // cached to avoid board lookup in unmakeMove
 };
 
 class Position {
@@ -34,6 +36,7 @@ public:
     void clearSquare(Square sq);
 
     uint64_t hash() const { return hash_; }
+    uint64_t pawnHash() const { return pawnHash_; }
     void computeHash();
 
     eval::Score psqt() const { return psqt_; }
@@ -90,27 +93,38 @@ private:
         Bitboard fromTo = squareBB(from) | squareBB(to);
         pieceBB_[static_cast<int>(pt)] ^= fromTo;
         colorBB_[static_cast<int>(c)] ^= fromTo;
+        occupied_ ^= fromTo;
         board_[to] = board_[from];
         board_[from] = Piece();
         psqt_ -= eval::pstValue(pt, c, from);
         psqt_ += eval::pstValue(pt, c, to);
+        if (pt == PieceType::Pawn) {
+            const int ci = static_cast<int>(c);
+            pawnHash_ ^= zobrist::pawnKeys[ci][from] ^ zobrist::pawnKeys[ci][to];
+        }
     }
 
     void removePieceBB(Square sq, PieceType pt, Color c) {
-        pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
-        colorBB_[static_cast<int>(c)] ^= squareBB(sq);
+        Bitboard bit = squareBB(sq);
+        pieceBB_[static_cast<int>(pt)] ^= bit;
+        colorBB_[static_cast<int>(c)] ^= bit;
+        occupied_ ^= bit;
         board_[sq] = Piece();
         psqt_ -= eval::pstValue(pt, c, sq);
+        if (pt == PieceType::Pawn)
+            pawnHash_ ^= zobrist::pawnKeys[static_cast<int>(c)][sq];
     }
 
     void putPieceBB(Square sq, PieceType pt, Color c) {
-        pieceBB_[static_cast<int>(pt)] ^= squareBB(sq);
-        colorBB_[static_cast<int>(c)] ^= squareBB(sq);
+        Bitboard bit = squareBB(sq);
+        pieceBB_[static_cast<int>(pt)] ^= bit;
+        colorBB_[static_cast<int>(c)] ^= bit;
+        occupied_ ^= bit;
         board_[sq] = Piece(pt, c);
         psqt_ += eval::pstValue(pt, c, sq);
+        if (pt == PieceType::Pawn)
+            pawnHash_ ^= zobrist::pawnKeys[static_cast<int>(c)][sq];
     }
-
-    void updateOccupied() { occupied_ = colorBB_[0] | colorBB_[1]; }
 
     std::array<Piece, 64> board_;
 
@@ -127,6 +141,7 @@ private:
     int halfmoveClock_;
     int fullmoveNumber_;
     uint64_t hash_ = 0;
+    uint64_t pawnHash_ = 0;
 };
 
 }  // namespace cchess

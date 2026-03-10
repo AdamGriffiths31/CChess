@@ -333,20 +333,38 @@ Score kingSafety(const Position& pos, Bitboard wp, Bitboard bp, const EvalState&
     return score;
 }
 
-int evaluate(const Position& pos) {
+int evaluate(const Position& pos, Score pawnScore, Score passedScore) {
     Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
     Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
 
     EvalState state;
-    Score score = pos.psqt() + bishopPair(pos) + pawnStructure(wp, bp) + passedPawns(wp, bp) +
+    Score score = pos.psqt() + bishopPair(pos) + pawnScore + passedScore +
                   rookOpenFiles(pos, wp, bp) + pieceEval(pos, wp, bp, state) +
                   kingSafety(pos, wp, bp, state);
 
-    // Taper: interpolate between MG and EG based on phase
     int phase = gamePhase(pos);
     int tapered = (score.mg * phase + score.eg * (TOTAL_PHASE - phase)) / TOTAL_PHASE;
 
     return (pos.sideToMove() == Color::White) ? tapered : -tapered;
+}
+
+int evaluate(const Position& pos, PawnTable& pt) {
+    uint64_t pawnKey = pos.pawnHash();
+    PawnEntry* pe = pt.probe(pawnKey);
+    if (pe->key != pawnKey) {
+        Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
+        Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
+        pe->key = pawnKey;
+        pe->pawnScore = pawnStructure(wp, bp);
+        pe->passedScore = passedPawns(wp, bp);
+    }
+    return evaluate(pos, pe->pawnScore, pe->passedScore);
+}
+
+int evaluate(const Position& pos) {
+    Bitboard wp = pos.pieces(PieceType::Pawn, Color::White);
+    Bitboard bp = pos.pieces(PieceType::Pawn, Color::Black);
+    return evaluate(pos, pawnStructure(wp, bp), passedPawns(wp, bp));
 }
 
 }  // namespace eval
