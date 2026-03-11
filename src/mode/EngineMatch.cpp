@@ -17,6 +17,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -128,7 +129,7 @@ GameResult EngineMatch::playGame(Color cchessColor, int gameNumber) {
     engine.newGame();
 
     TranspositionTable tt;
-    eval::PawnTable pawnTable;
+    auto pawnTable = std::make_unique<eval::PawnTable>();
     std::vector<std::string> moveHistory;
 
     int wtime = timeMs_;
@@ -218,7 +219,7 @@ GameResult EngineMatch::playGame(Color cchessColor, int gameNumber) {
                 config.searchTime = std::chrono::milliseconds(allocateTime(remaining, incMs_));
 
                 SearchInfo lastInfo{};
-                Search search(board, config, tt, pawnTable,
+                Search search(board, config, tt, *pawnTable,
                               [&lastInfo](const SearchInfo& i) { lastInfo = i; });
                 Move best = search.findBestMove();
                 uint64_t totalNodes = search.totalNodes();

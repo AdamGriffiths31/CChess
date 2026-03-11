@@ -7,15 +7,22 @@
 #include <cmath>
 #include <unordered_set>
 
-namespace cchess {
+// Search algorithm: iterative deepening with the following features:
+//   - Negamax + alpha-beta pruning
+//   - Principal Variation Search (PVS)
+//   - Null Move Pruning (NMP)
+//   - Late Move Reductions (LMR) with history-based adjustment
+//   - Quiescence search (captures + promotions only) with delta pruning
+//   - Transposition table with best-move ordering
+//   - MVV-LVA capture ordering + killer move + history heuristic (see MoveOrder.cpp)
+//   - Repetition detection (2-fold within search, 3-fold from game history)
 
-// ============================================================================
-// LMR table initialization
-// ============================================================================
+namespace cchess {
 
 std::array<std::array<int, Search::MAX_LMR_MOVES>, Search::MAX_LMR_DEPTH> Search::lmrTable_;
 bool Search::lmrInitialized_ = false;
 
+// Fills lmrTable_ with log(d)*log(m)/K reductions, used to reduce late quiet moves at depth d.
 void Search::initLMR() {
     if (lmrInitialized_)
         return;
@@ -32,10 +39,6 @@ void Search::initLMR() {
     lmrInitialized_ = true;
 }
 
-// ============================================================================
-// Construction
-// ============================================================================
-
 Search::Search(const Board& board, const SearchConfig& config, TranspositionTable& tt,
                eval::PawnTable& pt, InfoCallback infoCallback, std::vector<uint64_t> gameHistory)
     : board_(board),
@@ -49,122 +52,7 @@ Search::Search(const Board& board, const SearchConfig& config, TranspositionTabl
     initLMR();
 }
 
-// Store a killer move at the given ply: shift existing killer to slot 1, new move to slot 0.
-// Only store quiet moves (not captures or promotions).
-void Search::storeKiller(int ply, const Move& move) {
-    assert(ply >= 0 && ply < MAX_PLY);
-    auto p = static_cast<size_t>(ply);
-    // Avoid duplicate entries
-    if (killers_[p][0] == move)
-        return;
-    killers_[p][1] = killers_[p][0];
-    killers_[p][0] = move;
-}
-
-// ============================================================================
-// PV extraction from TT
-// ============================================================================
-
-std::vector<Move> Search::extractPV(int maxLength) {
-    std::vector<Move> pv;
-    std::vector<UndoInfo> undos;
-    std::unordered_set<uint64_t> seen;
-
-    for (int i = 0; i < maxLength; ++i) {
-        uint64_t hash = board_.position().hash();
-        if (seen.count(hash))
-            break;
-        seen.insert(hash);
-
-        TTEntry entry;
-        if (!tt_.probe(hash, entry) || entry.bestMove().isNull())
-            break;
-
-        // Verify move is legal
-        MoveList legal = board_.getLegalMoves();
-        bool found = false;
-        for (size_t j = 0; j < legal.size(); ++j) {
-            if (legal[j] == entry.bestMove()) {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            break;
-
-        pv.push_back(entry.bestMove());
-        undos.push_back(board_.makeMoveUnchecked(entry.bestMove()));
-    }
-
-    // Undo all PV moves in reverse
-    for (size_t i = pv.size(); i > 0; --i) {
-        board_.unmakeMove(pv[i - 1], undos[i - 1]);
-    }
-
-    return pv;
-}
-
-// ============================================================================
-// Repetition detection
-// ============================================================================
-
-// Returns true if the current position is a draw by repetition.
-//
-// Strategy: treat any repetition as an immediate draw during search.
-// - One prior occurrence within the current search path (searchStack_) = draw.
-//   This avoids the engine voluntarily entering a line it can repeat indefinitely.
-// - Two prior occurrences in the game history (gameHistory_) = draw.
-//   This correctly implements 3-fold repetition for positions reached before search.
-//
-// We only look back as far as the halfmove clock allows, since any pawn move
-// or capture resets it and makes repetition impossible beyond that point.
-bool Search::isRepetition() const {
-    uint64_t hash = board_.position().hash();
-    int halfmove = board_.position().halfmoveClock();
-
-    // Count occurrences in current search path (excluding the current node itself).
-    // Any match here = 2-fold repetition within the search = treat as draw.
-    int searchSize = static_cast<int>(searchStack_.size());
-    int searchLookback = std::min(searchSize, halfmove);
-    for (int i = searchSize - 1; i >= searchSize - searchLookback; --i) {
-        if (searchStack_[static_cast<size_t>(i)] == hash)
-            return true;
-    }
-
-    // Count occurrences in game history (positions before search started).
-    // Need two matches there for 3-fold repetition.
-    int historyLookback = halfmove - searchSize;
-    if (historyLookback > 0) {
-        int histSize = static_cast<int>(gameHistory_.size());
-        int start = histSize - historyLookback;
-        if (start < 0)
-            start = 0;
-        int historyCount = 0;
-        for (int i = start; i < histSize; ++i) {
-            if (gameHistory_[static_cast<size_t>(i)] == hash) {
-                if (++historyCount >= 2)
-                    return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-// ============================================================================
-// Search
-// ============================================================================
-
-// Runs iterative deepening and returns the best move found within the time/
-// depth limits.  Each iteration calls negamax with the following features:
-//   - Negamax + alpha-beta pruning
-//   - Principal Variation Search (PVS)
-//   - Null Move Pruning (NMP)
-//   - Late Move Reductions (LMR)
-//   - Quiescence search (captures + promotions only)
-//   - Transposition table with best-move ordering
-//   - MVV-LVA capture ordering + killer move heuristic (see MoveOrder.cpp)
-//   - Repetition detection (2-fold within search, 3-fold from game history)
+// Runs iterative deepening, returning the best move found within time/depth limits.
 Move Search::findBestMove() {
     startTime_ = std::chrono::steady_clock::now();
     stopped_ = false;
@@ -172,6 +60,9 @@ Move Search::findBestMove() {
     tt_.newSearch();
     for (auto& pair : killers_)
         pair[0] = pair[1] = Move{};
+    for (auto& colorTable : history_)
+        for (auto& fromRow : colorTable)
+            fromRow.fill(0);
     Move bestMove;
 
     for (int depth = 1; depth <= config_.maxDepth; ++depth) {
@@ -194,6 +85,7 @@ Move Search::findBestMove() {
 
         uint64_t rootHash = board_.position().hash();
         for (size_t i = 0; i < moves.size(); ++i) {
+            assert(searchStack_.empty());
             searchStack_.push_back(rootHash);
             UndoInfo undo = board_.makeMoveUnchecked(moves[i]);
             ++nodes_;
@@ -211,6 +103,7 @@ Move Search::findBestMove() {
 
             board_.unmakeMove(moves[i], undo);
             searchStack_.pop_back();
+            assert(searchStack_.empty());
 
             if (stopped_)
                 break;
@@ -256,10 +149,12 @@ Move Search::findBestMove() {
     return bestMove;
 }
 
+// Alpha-beta negamax with PVS, NMP, LMR, and TT cutoffs.
 int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool nullOk) {
     assert(alpha < beta);
     assert(depth >= 0);
     assert(ply >= 0);
+    assert(ply < MAX_PLY);
 
     if ((nodes_ & 1023) == 0)
         checkTime();
@@ -334,13 +229,18 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         return eval::SCORE_DRAW;  // Stalemate
     }
 
-    assert(ply < MAX_PLY);
     const Move* killers = killers_[static_cast<size_t>(ply)].data();
-    MoveOrder::sort(moves, board_.position(), ttMove, killers);
+    int colorIdx = board_.position().sideToMove() == Color::White ? 0 : 1;
+    MoveOrder::sort(moves, board_.position(), ttMove, killers,
+                    history_[static_cast<size_t>(colorIdx)]);
 
     int bestScore = -eval::SCORE_INFINITY;
     Move bestMoveInNode;
     int origAlpha = alpha;
+
+    // Track quiet moves searched before a cutoff for history malus
+    Move quietsSearched[MAX_PLY];
+    int quietsCount = 0;
 
     for (size_t i = 0; i < moves.size(); ++i) {
         // Push current hash so children can detect repetition back to this node
@@ -357,14 +257,20 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         } else {
             // Late Move Reduction
             int reduction = 0;
-            if (depth >= 3 && i >= 2 && !inCheck && !givesCheck && !moves[i].isCapture() &&
-                !moves[i].isPromotion()) {
+            bool isQuiet = !moves[i].isCapture() && !moves[i].isPromotion();
+            if (depth >= 3 && i >= 2 && !inCheck && !givesCheck && isQuiet) {
                 size_t di = static_cast<size_t>(std::min(depth, MAX_LMR_DEPTH - 1));
                 size_t mi = std::min(i, static_cast<size_t>(MAX_LMR_MOVES - 1));
                 reduction = lmrTable_[di][mi];
-                // Don't reduce into qsearch
-                if (reduction >= depth - 1)
-                    reduction = depth - 2;
+
+                // Adjust reduction by history: good history = reduce less, bad = reduce more
+                int histScore =
+                    history_[static_cast<size_t>(colorIdx)][static_cast<size_t>(static_cast<int>(
+                        moves[i].from()))][static_cast<size_t>(static_cast<int>(moves[i].to()))];
+                reduction -= histScore / MAX_HISTORY;  // [-1, +1] adjustment
+
+                // Don't reduce into qsearch or below 0
+                reduction = std::clamp(reduction, 0, depth - 2);
             }
 
             score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, givesCheck);
@@ -384,6 +290,10 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         if (stopped_)
             return 0;
 
+        // Track quiet moves for history update
+        if (!moves[i].isCapture() && !moves[i].isPromotion() && quietsCount < MAX_PLY)
+            quietsSearched[quietsCount++] = moves[i];
+
         if (score > bestScore) {
             bestScore = score;
             bestMoveInNode = moves[i];
@@ -391,9 +301,20 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
         if (score > alpha)
             alpha = score;
         if (alpha >= beta) {
-            // Store killer: quiet moves that cause beta-cutoffs
-            if (!moves[i].isCapture() && !moves[i].isPromotion() && ply < MAX_PLY)
+            if (!moves[i].isCapture() && !moves[i].isPromotion() && ply < MAX_PLY) {
                 storeKiller(ply, moves[i]);
+
+                // History bonus for the move that caused the cutoff
+                int bonus = std::min(depth * depth, MAX_HISTORY);
+                updateHistory(colorIdx, static_cast<int>(moves[i].from()),
+                              static_cast<int>(moves[i].to()), bonus);
+
+                // History malus for all quiet moves searched before the cutoff
+                for (int q = 0; q < quietsCount - 1; ++q) {
+                    updateHistory(colorIdx, static_cast<int>(quietsSearched[q].from()),
+                                  static_cast<int>(quietsSearched[q].to()), -bonus);
+                }
+            }
             break;
         }
     }
@@ -414,16 +335,13 @@ int Search::negamax(int depth, int alpha, int beta, int ply, bool inCheck, bool 
     return bestScore;
 }
 
-// ============================================================================
-// Quiescence search -- only searches captures and promotions so that the
-// static evaluation is never called in a tactically unstable position.
-// Uses "stand pat" as a lower bound: the side to move can always choose
-// not to capture.
-// ============================================================================
-
+// Only searches captures and promotions so that static evaluation is never
+// called in a tactically unstable position. Uses stand-pat as a lower bound:
+// the side to move can always choose not to capture.
 int Search::quiescence(int alpha, int beta, int ply) {
     assert(alpha < beta);
     assert(ply >= 0);
+    assert(ply < MAX_PLY);
 
     if ((nodes_ & 1023) == 0)
         checkTime();
@@ -484,6 +402,7 @@ int Search::quiescence(int alpha, int beta, int ply) {
         // Exempt promotions (large swing) and en passant (target square is empty).
         if (!captures[i].isPromotion() && !captures[i].isEnPassant()) {
             PieceType captured = board_.position().pieceAt(captures[i].to()).type();
+            assert(captured != PieceType::None && captured != PieceType::King);
             if (standPat + eval::PIECE_VALUE_MG[static_cast<int>(captured)] + DELTA_MARGIN < alpha)
                 continue;
         }
@@ -523,10 +442,105 @@ int Search::quiescence(int alpha, int beta, int ply) {
     return bestScore;
 }
 
-// ============================================================================
-// Helpers
-// ============================================================================
+// Returns true if the current position is a draw by repetition, looking back
+// only as far as the halfmove clock allows since captures and pawn moves reset it.
+bool Search::isRepetition() const {
+    uint64_t hash = board_.position().hash();
+    int halfmove = board_.position().halfmoveClock();
 
+    // Count occurrences in current search path (excluding the current node itself).
+    // Any match here = 2-fold repetition within the search = treat as draw.
+    int searchSize = static_cast<int>(searchStack_.size());
+    int searchLookback = std::min(searchSize, halfmove);
+    for (int i = searchSize - 1; i >= searchSize - searchLookback; --i) {
+        if (searchStack_[static_cast<size_t>(i)] == hash)
+            return true;
+    }
+
+    // Count occurrences in game history (positions before search started).
+    // Need two matches there for 3-fold repetition.
+    int historyLookback = halfmove - searchSize;
+    if (historyLookback > 0) {
+        int histSize = static_cast<int>(gameHistory_.size());
+        int start = histSize - historyLookback;
+        if (start < 0)
+            start = 0;
+        int historyCount = 0;
+        for (int i = start; i < histSize; ++i) {
+            if (gameHistory_[static_cast<size_t>(i)] == hash) {
+                if (++historyCount >= 2)
+                    return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// Reconstructs the principal variation by following TT best moves, verifying each is legal.
+std::vector<Move> Search::extractPV(int maxLength) {
+    std::vector<Move> pv;
+    std::vector<UndoInfo> undos;
+    std::unordered_set<uint64_t> seen;
+
+    for (int i = 0; i < maxLength; ++i) {
+        uint64_t hash = board_.position().hash();
+        if (seen.count(hash))
+            break;
+        seen.insert(hash);
+
+        TTEntry entry;
+        if (!tt_.probe(hash, entry) || entry.bestMove().isNull())
+            break;
+
+        // Verify move is legal
+        MoveList legal = board_.getLegalMoves();
+        bool found = false;
+        for (size_t j = 0; j < legal.size(); ++j) {
+            if (legal[j] == entry.bestMove()) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            break;
+
+        pv.push_back(entry.bestMove());
+        undos.push_back(board_.makeMoveUnchecked(entry.bestMove()));
+    }
+
+    assert(pv.size() == undos.size());
+    for (size_t i = pv.size(); i > 0; --i) {
+        board_.unmakeMove(pv[i - 1], undos[i - 1]);
+    }
+
+    return pv;
+}
+
+// Updates a history score using a gravity formula that self-clamps to [-MAX_HISTORY, MAX_HISTORY].
+void Search::updateHistory(int colorIdx, int from, int to, int bonus) {
+    assert(colorIdx == 0 || colorIdx == 1);
+    assert(from >= 0 && from < 64);
+    assert(to >= 0 && to < 64);
+    int b = std::clamp(bonus, -MAX_HISTORY, MAX_HISTORY);
+    auto& h = history_[static_cast<size_t>(colorIdx)][static_cast<size_t>(static_cast<int>(from))]
+                      [static_cast<size_t>(static_cast<int>(to))];
+    h += b - h * std::abs(b) / MAX_HISTORY;
+    assert(h >= -MAX_HISTORY && h <= MAX_HISTORY);
+}
+
+// Records a quiet move that caused a beta-cutoff so it can be tried early in sibling nodes.
+void Search::storeKiller(int ply, const Move& move) {
+    assert(!move.isNull() && !move.isCapture() && !move.isPromotion());
+    assert(ply >= 0 && ply < MAX_PLY);
+    auto p = static_cast<size_t>(ply);
+    if (killers_[p][0] == move)
+        return;
+    killers_[p][1] = killers_[p][0];
+    killers_[p][0] = move;
+}
+
+// Sets stopped_ if the time limit or external stop signal has been reached.
 void Search::checkTime() {
     if (config_.stopSignal && config_.stopSignal->load(std::memory_order_relaxed)) {
         stopped_ = true;

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -46,14 +47,14 @@ void ProfileBench::run(int searchTimeMs) {
 
     Board board(fen);
     TranspositionTable tt;
-    eval::PawnTable pawnTable;
+    auto pawnTable = std::make_unique<eval::PawnTable>();
 
     SearchConfig config;
     config.searchTime = std::chrono::milliseconds(searchTimeMs);
 
     auto wallStart = std::chrono::steady_clock::now();
 
-    Search search(board, config, tt, pawnTable, [](const SearchInfo& info) {
+    Search search(board, config, tt, *pawnTable, [](const SearchInfo& info) {
         std::cout << "  depth=" << info.depth << "  score=" << info.score
                   << "  nodes=" << info.nodes << "  time=" << info.timeMs << "ms"
                   << "  nps="

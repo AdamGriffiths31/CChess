@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -34,7 +35,7 @@ private:
     Board board_;
     std::vector<uint64_t> gameHistory_;
     TranspositionTable tt_;
-    eval::PawnTable pawnTable_;
+    std::unique_ptr<eval::PawnTable> pawnTable_ = std::make_unique<eval::PawnTable>();
     std::atomic<bool> stopFlag_{false};
     std::thread searchThread_;
 

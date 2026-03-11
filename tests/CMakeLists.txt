@@ -41,6 +41,7 @@ add_executable(cchess_tests
     core/ZobristTest.cpp
     ai/TranspositionTableTest.cpp
     ai/EvalTest.cpp
+    ai/SearchTest.cpp
 )
 
 target_link_libraries(cchess_tests PRIVATE

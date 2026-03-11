@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -211,8 +212,8 @@ void StsRunner::run() {
 
             Board board(fen);
             TranspositionTable tt;
-            eval::PawnTable pawnTable;
-            Search search(board, config, tt, pawnTable);
+            auto pawnTable = std::make_unique<eval::PawnTable>();
+            Search search(board, config, tt, *pawnTable);
             Move bestMove = search.findBestMove();
 
             if (bestMove.isNull()) {

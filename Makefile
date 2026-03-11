@@ -8,9 +8,12 @@ ifeq ($(OS),Windows_NT)
     CMAKE_MINGW := -G "MinGW Makefiles" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_COMPILER=$(UCRT64)/g++.exe
     CMAKE_MSVC  := -G "Visual Studio 18 2026" -A x64 -DFETCHCONTENT_FULLY_DISCONNECTED=ON
     EXE         := .exe
-    # Fix MSYS2 TMP path for native Windows compilers
-    export TMP  := $(shell cygpath -w /tmp)
-    export TEMP := $(TMP)
+    # Fix MSYS2 TMP path for native Windows compilers.
+    # GCC checks TMPDIR first, then TMP/TEMP. All three must point to a writable
+    # directory so parallel compiler processes don't fall back to C:\WINDOWS\.
+    export TMPDIR := /tmp
+    export TMP    := $(shell cygpath -w /tmp)
+    export TEMP   := $(TMP)
 else
     DETECTED_OS := Linux
     PATH_FIX    :=

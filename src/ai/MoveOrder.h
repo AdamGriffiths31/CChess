@@ -5,6 +5,8 @@
 #include "core/MoveList.h"
 #include "core/Position.h"
 
+#include <array>
+
 namespace cchess {
 
 // ============================================================================
@@ -28,6 +30,11 @@ public:
     // Sort with TT move first and killer moves scored above other quiets
     // killers[0] and killers[1] are the two killers for the current ply
     static void sort(MoveList& moves, const Position& pos, const Move& ttMove, const Move* killers);
+
+    // Sort with TT move, killers, and butterfly history scores for quiet moves
+    // history is a [64][64] from-to table for the side to move
+    static void sort(MoveList& moves, const Position& pos, const Move& ttMove, const Move* killers,
+                     const std::array<std::array<int, 64>, 64>& history);
 
     // Extract and sort only captures + promotions from a move list.
     // Returns the count written into `out`.

@@ -219,12 +219,12 @@ void Uci::handleGo(std::istringstream& args) {
     // Launch search in background thread
     Board boardCopy = board_;
     std::vector<uint64_t> historyCopy = gameHistory_;
-    searchThread_ = std::thread(
-        [this, config, infoCallback, boardCopy, historyCopy = std::move(historyCopy)]() mutable {
-            Search search(boardCopy, config, tt_, pawnTable_, infoCallback, std::move(historyCopy));
-            Move best = search.findBestMove();
-            std::cout << "bestmove " << best.toAlgebraic() << "\n";
-        });
+    searchThread_ = std::thread([this, config, infoCallback, boardCopy,
+                                 historyCopy = std::move(historyCopy)]() mutable {
+        Search search(boardCopy, config, tt_, *pawnTable_, infoCallback, std::move(historyCopy));
+        Move best = search.findBestMove();
+        std::cout << "bestmove " << best.toAlgebraic() << "\n";
+    });
 }
 
 void Uci::handleSetOption(std::istringstream& args) {

@@ -151,6 +151,44 @@ void MoveOrder::sort(MoveList& moves, const Position& pos, const Move& ttMove,
     }
 }
 
+void MoveOrder::sort(MoveList& moves, const Position& pos, const Move& ttMove, const Move* killers,
+                     const std::array<std::array<int, 64>, 64>& history) {
+    assert(moves.size() <= 256);
+
+    int scores[256];
+    for (size_t i = 0; i < moves.size(); ++i) {
+        const Move& m = moves[i];
+        if (matchesTTMove(m, ttMove)) {
+            scores[i] = 1'000'000;
+        } else {
+            scores[i] = score(m, pos);
+            if (!m.isCapture() && !m.isPromotion()) {
+                if (!killers[0].isNull() && m == killers[0])
+                    scores[i] = KILLER1_SCORE;
+                else if (!killers[1].isNull() && m == killers[1])
+                    scores[i] = KILLER2_SCORE;
+                else
+                    // History score is in [-MAX_HISTORY, MAX_HISTORY]; scale to fit below killers
+                    scores[i] = history[static_cast<size_t>(static_cast<int>(m.from()))]
+                                       [static_cast<size_t>(static_cast<int>(m.to()))];
+            }
+        }
+    }
+
+    for (size_t i = 1; i < moves.size(); ++i) {
+        Move key = moves[i];
+        int keyScore = scores[i];
+        size_t j = i;
+        while (j > 0 && scores[j - 1] < keyScore) {
+            moves[j] = moves[j - 1];
+            scores[j] = scores[j - 1];
+            --j;
+        }
+        moves[j] = key;
+        scores[j] = keyScore;
+    }
+}
+
 size_t MoveOrder::extractCaptures(const MoveList& moves, const Position& pos, Move* out,
                                   size_t maxOut) {
     struct ScoredMove {
